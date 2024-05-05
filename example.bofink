@@ -1,3 +1,8 @@
-str s1 = "This is the first string " + 9 + " maybe";
+int i1 = 10;
+str s1 = "STRING VAR";
 
-print s1;
+print "This is an int variable: " + i1;
+print "This is an int variable: " + i1;
+print i1 + " int first!";
+print s1 + " string first";
+print "string last " + s1;

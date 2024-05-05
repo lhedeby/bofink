@@ -14,7 +14,9 @@ pub enum OpCode {
     Print,
     String,
     Int,
-    StringConcat,
+    StringStringConcat,
+    StringIntConcat,
+    IntStringConcat,
     GetLocal,
     SetLocal,
 }

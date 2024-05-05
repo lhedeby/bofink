@@ -45,6 +45,7 @@ pub fn compile(source: String) -> Chunk {
                 locals.push(Local {
                     name: identifier.to_string(),
                     stack_pos: local_count,
+                    kind: TokenKind::Int,
                 });
                 local_count += 1;
             }
@@ -63,6 +64,7 @@ pub fn compile(source: String) -> Chunk {
                 locals.push(Local {
                     name: identifier.to_string(),
                     stack_pos: local_count,
+                    kind: TokenKind::String,
                 });
                 local_count += 1;
             }
@@ -77,7 +79,7 @@ pub fn compile(source: String) -> Chunk {
 }
 
 fn int_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals: &Vec<Local>) {
-    let mut add_concatenate_instruction = false;
+    let mut add_add_instruction = false;
     loop {
         *p += 1;
         let next_token = &tokens[*p];
@@ -90,10 +92,10 @@ fn int_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
                 chunk.emit_code(chunk.ints.len() as u8 - 1, next_token.line);
             }
             TokenKind::Plus => {
-                if add_concatenate_instruction {
+                if add_add_instruction {
                     panic!("+ + is not a valid operation");
                 }
-                add_concatenate_instruction = true;
+                add_add_instruction = true;
                 continue;
             }
             TokenKind::Identifier => {
@@ -108,21 +110,27 @@ fn int_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
             }
             _ => panic!("Error parsing str expression, got '{:?}'", next_token.kind),
         }
-        if add_concatenate_instruction {
-            add_concatenate_instruction = false;
-            chunk.emit_code(OpCode::StringConcat as u8, next_token.line);
+        if add_add_instruction {
+            add_add_instruction = false;
+            chunk.emit_code(OpCode::Add as u8, next_token.line);
         }
     }
 }
 fn str_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals: &Vec<Local>) {
     let mut add_concatenate_instruction = false;
+    // let mut concant_instruction: Option<OpCode> = None;
+    let mut prev_kind: Option<TokenKind> = None;
+    let mut curr_kind: Option<TokenKind> = None;
     loop {
         *p += 1;
         let next_token = &tokens[*p];
         match next_token.kind {
             TokenKind::Semicolon => break,
             TokenKind::String | TokenKind::Number => {
+                println!("MATCHING KIND");
                 chunk.strings.push(next_token.value.to_string());
+                prev_kind = curr_kind;
+                curr_kind = Some(next_token.kind);
                 chunk.emit_code(OpCode::String as u8, next_token.line);
                 chunk.emit_code(chunk.strings.len() as u8 - 1, next_token.line);
             }
@@ -138,6 +146,8 @@ fn str_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
 
                 for local in locals {
                     if local.name == next_token.value {
+                        prev_kind = curr_kind;
+                        curr_kind = Some(local.kind);
                         chunk.emit_code(local.stack_pos as u8, next_token.line);
                         break;
                     }
@@ -147,7 +157,20 @@ fn str_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
         }
         if add_concatenate_instruction {
             add_concatenate_instruction = false;
-            chunk.emit_code(OpCode::StringConcat as u8, next_token.line);
+            println!(
+                "Adding concat instruction for '{:?}' and '{:?}'.",
+                prev_kind, curr_kind
+            );
+            let kind = match (prev_kind, curr_kind) {
+                // (Some(TokenKind::Str), Some(TokenKind::Str)) => OpCode::StringStringConcat,
+                // (Some(TokenKind::Int), Some(TokenKind::Str)) => OpCode::IntStringConcat,
+                // (Some(TokenKind::Str), Some(TokenKind::Int)) => OpCode::StringIntConcat,
+                (Some(TokenKind::String), Some(TokenKind::String)) => OpCode::StringStringConcat,
+                (Some(TokenKind::Int), Some(TokenKind::String)) => OpCode::IntStringConcat,
+                (Some(TokenKind::String), Some(TokenKind::Int)) => OpCode::StringIntConcat,
+                _ => panic!("Unkown concat types '{:?}', '{:?}'", prev_kind, curr_kind),
+            };
+            chunk.emit_code(kind as u8, next_token.line);
         }
     }
 }
@@ -155,6 +178,7 @@ fn str_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
 struct Local {
     // name: Token,
     // depth: usize,
+    kind: TokenKind,
     name: String,
     stack_pos: usize,
 }
