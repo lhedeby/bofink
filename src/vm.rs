@@ -31,18 +31,35 @@ pub fn interpret(mut chunk: Chunk) {
             "=== DEBUG === executing instruction: '{:?}', line: '{}'",
             curr_instruction, chunk.line[ip]
         );
-        print_stack(&stack);
+        // print_stack(&stack);
         match curr_instruction {
             OpCode::Print => {
                 let val = stack.pop().unwrap();
-                println!(
-                    "===================================== Print Stmt === : {}",
-                    chunk.strings[unsafe { val.u } as usize]
-                )
+                println!("{}", chunk.strings[unsafe { val.u } as usize])
             }
             OpCode::String => {
                 ip += 1;
                 stack.push(StackValue { u: chunk.code[ip] });
+            }
+            OpCode::Add => {
+                let num1 = unsafe { stack.pop().unwrap().i };
+                let num2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { i: num2 + num1 });
+            }
+            OpCode::Subtract => {
+                let num1 = unsafe { stack.pop().unwrap().i };
+                let num2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { i: num2 - num1 });
+            }
+            OpCode::Divide => {
+                let num1 = unsafe { stack.pop().unwrap().i };
+                let num2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { i: num2 / num1 });
+            }
+            OpCode::Multiply => {
+                let num1 = unsafe { stack.pop().unwrap().i };
+                let num2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { i: num2 * num1 });
             }
             OpCode::StringStringConcat => {
                 let s1 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
@@ -81,10 +98,6 @@ pub fn interpret(mut chunk: Chunk) {
             }
             OpCode::GetLocal => {
                 ip += 1;
-                println!("GET LOCAL");
-                println!("ip: {ip}");
-                println!("{:?}", chunk.code);
-                println!("ins: {:?}", chunk.code[ip]);
                 stack.push(StackValue {
                     i: unsafe { stack[chunk.code[ip] as usize].i },
                 })
@@ -92,7 +105,7 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::SetLocal => {
                 ip += 1;
                 let slot = chunk.code[ip] as usize;
-                unsafe { stack[slot].u = stack.last().unwrap().u };
+                unsafe { stack[slot].i = stack.last().unwrap().i };
             }
             _ => panic!(
                 "No implementation for instruction '{:#?}'",
@@ -101,5 +114,4 @@ pub fn interpret(mut chunk: Chunk) {
         }
         ip += 1;
     }
-    // println!("chunk: {:#?}", chunk);
 }

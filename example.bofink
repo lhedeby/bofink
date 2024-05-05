@@ -1,8 +1,2 @@
-int i1 = 10;
-str s1 = "STRING VAR";
-
-print "This is an int variable: " + i1;
-print "This is an int variable: " + i1;
-print i1 + " int first!";
-print s1 + " string first";
-print "string last " + s1;
+int i1 = -10 / 2;
+print "this is the int" + i1;

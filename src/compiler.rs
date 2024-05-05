@@ -80,6 +80,7 @@ pub fn compile(source: String) -> Chunk {
 
 fn int_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals: &Vec<Local>) {
     let mut add_add_instruction = false;
+    let mut instruction: Option<OpCode> = None;
     loop {
         *p += 1;
         let next_token = &tokens[*p];
@@ -92,15 +93,40 @@ fn int_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
                 chunk.emit_code(chunk.ints.len() as u8 - 1, next_token.line);
             }
             TokenKind::Plus => {
-                if add_add_instruction {
-                    panic!("+ + is not a valid operation");
+                if instruction.is_some() {
+                    panic!("invalid syntax at line {}", next_token.line);
                 }
-                add_add_instruction = true;
+                instruction = Some(OpCode::Add);
+                continue;
+                // if add_add_instruction {
+                //     panic!("+ + is not a valid operation");
+                // }
+                // add_add_instruction = true;
+                // continue;
+            }
+            TokenKind::Minus => {
+                if instruction.is_some() {
+                    panic!("invalid syntax at line {}", next_token.line);
+                }
+                instruction = Some(OpCode::Subtract);
+                continue;
+            }
+            TokenKind::Star => {
+                if instruction.is_some() {
+                    panic!("invalid syntax at line {}", next_token.line);
+                }
+                instruction = Some(OpCode::Multiply);
+                continue;
+            }
+            TokenKind::Slash => {
+                if instruction.is_some() {
+                    panic!("invalid syntax at line {}", next_token.line);
+                }
+                instruction = Some(OpCode::Divide);
                 continue;
             }
             TokenKind::Identifier => {
                 chunk.emit_code(OpCode::GetLocal as u8, next_token.line);
-
                 for local in locals {
                     if local.name == next_token.value {
                         chunk.emit_code(local.stack_pos as u8, next_token.line);
@@ -110,9 +136,13 @@ fn int_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
             }
             _ => panic!("Error parsing str expression, got '{:?}'", next_token.kind),
         }
-        if add_add_instruction {
-            add_add_instruction = false;
-            chunk.emit_code(OpCode::Add as u8, next_token.line);
+        // if add_add_instruction {
+        //     add_add_instruction = false;
+        //     chunk.emit_code(OpCode::Add as u8, next_token.line);
+        // }
+        if let Some(ins) = instruction {
+            chunk.emit_code(ins as u8, next_token.line);
+            instruction = None;
         }
     }
 }
@@ -127,7 +157,6 @@ fn str_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
         match next_token.kind {
             TokenKind::Semicolon => break,
             TokenKind::String | TokenKind::Number => {
-                println!("MATCHING KIND");
                 chunk.strings.push(next_token.value.to_string());
                 prev_kind = curr_kind;
                 curr_kind = Some(next_token.kind);
@@ -157,10 +186,10 @@ fn str_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals:
         }
         if add_concatenate_instruction {
             add_concatenate_instruction = false;
-            println!(
-                "Adding concat instruction for '{:?}' and '{:?}'.",
-                prev_kind, curr_kind
-            );
+            // println!(
+            //     "Adding concat instruction for '{:?}' and '{:?}'.",
+            //     prev_kind, curr_kind
+            // );
             let kind = match (prev_kind, curr_kind) {
                 // (Some(TokenKind::Str), Some(TokenKind::Str)) => OpCode::StringStringConcat,
                 // (Some(TokenKind::Int), Some(TokenKind::Str)) => OpCode::IntStringConcat,
