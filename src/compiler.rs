@@ -17,6 +17,7 @@ pub fn compile2(source: String) -> Chunk {
             line: vec![],
             strings: vec![],
             ints: vec![],
+            patch_list: vec![],
         },
 
         p: 0,
@@ -31,6 +32,7 @@ pub fn compile2(source: String) -> Chunk {
         println!("{:?}", compiler.tokens[i]);
     }
     compiler.step();
+    println!("COMPILING COMPLETED");
     compiler.chunk
 }
 
@@ -54,14 +56,15 @@ impl Compiler {
     fn step(&mut self) {
         loop {
             let curr_token = &self.tokens[self.p];
+            println!("{:?}", curr_token);
             match curr_token.kind {
                 TokenKind::Str => {
                     self.p += 1;
                     let identifier = &self.tokens[self.p].value.to_string();
                     self.consume_token(TokenKind::Identifier);
-                    // if self.locals.iter().any(|x| &x.name == identifier) {
-                    //     panic!("Cannot redeclare local variable");
-                    // }
+                    if self.locals.iter().any(|x| &x.name == identifier) {
+                        panic!("Cannot redeclare local variable");
+                    }
                     self.consume_token(TokenKind::Equal);
                     self.expression();
 
@@ -99,7 +102,16 @@ impl Compiler {
         let curr_token = &self.tokens[self.p];
         match curr_token.kind {
             TokenKind::For => {}
-            TokenKind::If => {}
+            TokenKind::If => {
+                self.p += 1;
+                self.chunk.emit_code(OpCode::SetJump as u8, curr_token.line);
+                self.chunk.emit_placeholder(curr_token.line);
+                self.expression();
+                self.consume_token(TokenKind::LeftBrace);
+                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
+                self.step();
+                self.chunk.replace_placeholder();
+            }
             TokenKind::Print => {
                 let print_token_line = curr_token.line;
                 self.p += 1;
@@ -118,168 +130,30 @@ impl Compiler {
     }
     fn expression(&mut self) {
         let mut previous: Option<ExpressionKind> = None;
+        let mut current: Option<ExpressionKind> = None;
+        let mut operator: Option<Operator> = None;
         loop {
             let curr_token = &self.tokens[self.p];
             match curr_token.kind {
                 TokenKind::True => {
                     self.chunk.emit_code(OpCode::True as u8, curr_token.line);
-                    previous = Some(ExpressionKind::Bool);
+                    previous = current;
+                    current = Some(ExpressionKind::Bool);
                 }
                 TokenKind::False => {
                     self.chunk.emit_code(OpCode::False as u8, curr_token.line);
-                    previous = Some(ExpressionKind::Bool);
+                    previous = current;
+                    current = Some(ExpressionKind::Bool);
                 }
                 TokenKind::Number => {
                     self.chunk.emit_number(curr_token);
-                    previous = Some(ExpressionKind::Int);
+                    previous = current;
+                    current = Some(ExpressionKind::Int);
                 }
-                TokenKind::Plus => {
-                    self.p += 1;
-                    let next_token = &self.tokens[self.p];
-                    match next_token.kind {
-                        TokenKind::Number => {
-                            self.chunk.emit_number(next_token);
-                            match previous {
-                                Some(ExpressionKind::Int) => {
-                                    self.chunk.emit_code(OpCode::Add as u8, next_token.line)
-                                }
-                                Some(ExpressionKind::String) => self
-                                    .chunk
-                                    .emit_code(OpCode::StringIntConcat as u8, next_token.line),
-                                Some(ExpressionKind::Bool) => {
-                                    panic!("Invalid type concatenation 'Bool' + 'Number'")
-                                }
-                                None => todo!(),
-                            }
-                        }
-                        TokenKind::String => {
-                            self.chunk.emit_string(next_token);
-                            match previous {
-                                Some(ExpressionKind::Int) => self
-                                    .chunk
-                                    .emit_code(OpCode::IntStringConcat as u8, next_token.line),
-                                Some(ExpressionKind::String) => self
-                                    .chunk
-                                    .emit_code(OpCode::StringStringConcat as u8, next_token.line),
-                                Some(ExpressionKind::Bool) => self
-                                    .chunk
-                                    .emit_code(OpCode::BoolStringConcat as u8, next_token.line),
-                                None => panic!("previous is 'None'"),
-                            }
-                            previous = Some(ExpressionKind::String);
-                        }
-                        TokenKind::Identifier => {
-                            self.chunk
-                                .emit_code(OpCode::GetLocal as u8, next_token.line);
-                            for local in &self.locals {
-                                if local.name == next_token.value {
-                                    self.chunk.emit_code(local.stack_pos as u8, next_token.line);
-                                    match (&previous, local.kind) {
-                                        (Some(ExpressionKind::String), TokenKind::String) => self.chunk.emit_code(OpCode::StringStringConcat as u8, next_token.line),
-                                        (Some(ExpressionKind::Int), TokenKind::String) => self.chunk.emit_code(OpCode::IntStringConcat as u8, next_token.line),
-                                        (Some(ExpressionKind::String), TokenKind::Int) => self.chunk.emit_code(OpCode::StringIntConcat as u8, next_token.line),
-                                    _ => panic!("Not yet implemented or maybe it just shouldnt be possible. Who knows? previous = '{:?}', local = '{:?}'", &previous, local.kind)
-
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        _ => panic!("Unexpected token '{:?}',", &self.tokens[self.p].kind),
-                    }
-                }
-                TokenKind::Minus => match previous {
-                    Some(ExpressionKind::Int) => {
-                        self.p += 1;
-                        let next_token = &self.tokens[self.p];
-                        match next_token.kind {
-                            TokenKind::Number => self.chunk.emit_number(next_token),
-                            TokenKind::Identifier => {
-                                self.chunk
-                                    .emit_code(OpCode::GetLocal as u8, next_token.line);
-                                for local in &self.locals {
-                                    if local.name == next_token.value {
-                                        self.chunk
-                                            .emit_code(local.stack_pos as u8, next_token.line);
-                                        if local.kind != TokenKind::Int {
-                                            panic!("Not a valid local type for subtraction")
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                            _ => panic!("Unexpected token '{:?}' for subtraction.", next_token),
-                        }
-                        self.chunk
-                            .emit_code(OpCode::Subtract as u8, next_token.line)
-                    }
-                    _ => panic!(
-                        "Unexpected kind '{:?}'. Not possible to subtract from.",
-                        previous
-                    ),
-                },
-                TokenKind::Star => match previous {
-                    Some(ExpressionKind::Int) => {
-                        self.p += 1;
-                        let next_token = &self.tokens[self.p];
-                        match next_token.kind {
-                            TokenKind::Number => self.chunk.emit_number(next_token),
-                            TokenKind::Identifier => {
-                                self.chunk
-                                    .emit_code(OpCode::GetLocal as u8, next_token.line);
-                                for local in &self.locals {
-                                    if local.name == next_token.value {
-                                        self.chunk
-                                            .emit_code(local.stack_pos as u8, next_token.line);
-                                        if local.kind != TokenKind::Int {
-                                            panic!("Not a valid local type for subtraction")
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                            _ => panic!("Unexpected token '{:?}' for subtraction.", next_token),
-                        }
-                        self.chunk
-                            .emit_code(OpCode::Multiply as u8, next_token.line)
-                    }
-                    _ => panic!(
-                        "Unexpected kind '{:?}'. Not possible to subtract from.",
-                        previous
-                    ),
-                },
-                TokenKind::Slash => match previous {
-                    Some(ExpressionKind::Int) => {
-                        self.p += 1;
-                        let next_token = &self.tokens[self.p];
-                        match next_token.kind {
-                            TokenKind::Number => self.chunk.emit_number(next_token),
-                            TokenKind::Identifier => {
-                                self.chunk
-                                    .emit_code(OpCode::GetLocal as u8, next_token.line);
-                                for local in &self.locals {
-                                    if local.name == next_token.value {
-                                        self.chunk
-                                            .emit_code(local.stack_pos as u8, next_token.line);
-                                        if local.kind != TokenKind::Int {
-                                            panic!("Not a valid local type for subtraction")
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                            _ => panic!("Unexpected token '{:?}' for subtraction.", next_token),
-                        }
-                        self.chunk.emit_code(OpCode::Divide as u8, next_token.line)
-                    }
-                    _ => panic!(
-                        "Unexpected kind '{:?}'. Not possible to subtract from.",
-                        previous
-                    ),
-                },
                 TokenKind::String => {
                     self.chunk.emit_string(curr_token);
-                    previous = Some(ExpressionKind::String);
+                    previous = current;
+                    current = Some(ExpressionKind::String);
                 }
                 TokenKind::Identifier => {
                     self.chunk
@@ -297,243 +171,111 @@ impl Compiler {
                         }
                     }
                 }
+                TokenKind::Plus => {
+                    self.p += 1;
+                    operator = Some(Operator::Add);
+                    continue;
+                }
+                TokenKind::Minus => {
+                    self.p += 1;
+                    operator = Some(Operator::Subtract);
+                    continue;
+                }
+                TokenKind::Star => {
+                    self.p += 1;
+                    operator = Some(Operator::Multiply);
+                    continue;
+                }
+                TokenKind::Slash => {
+                    self.p += 1;
+                    operator = Some(Operator::Divide);
+                    continue;
+                }
                 TokenKind::Nil => {
                     todo!("not implemented")
                 }
                 TokenKind::Semicolon => break,
+                TokenKind::LeftBrace => break,
+                TokenKind::RightBrace => {
+                    self.p += 1;
+                    break;
+                }
                 _ => panic!(
                     "Unexpected token '{:?}' at line {}",
-                    curr_token.kind, self.chunk.line[self.p]
+                    curr_token.kind, curr_token.line
                 ),
             }
+
+            // adding operators after
+            match operator {
+                Some(Operator::Add) => match (&previous, &current) {
+                    (Some(ExpressionKind::String), Some(ExpressionKind::String)) => {
+                        self.chunk
+                            .emit_code(OpCode::StringStringConcat as u8, curr_token.line);
+                        current = Some(ExpressionKind::String);
+                    }
+                    (Some(ExpressionKind::String), Some(ExpressionKind::Int)) => {
+                        self.chunk
+                            .emit_code(OpCode::StringIntConcat as u8, curr_token.line);
+                        current = Some(ExpressionKind::String);
+                    }
+                    (Some(ExpressionKind::Int), Some(ExpressionKind::String)) => {
+                        self.chunk
+                            .emit_code(OpCode::IntStringConcat as u8, curr_token.line);
+                        current = Some(ExpressionKind::String);
+                    }
+                    (Some(ExpressionKind::String), Some(ExpressionKind::Bool)) => {
+                        self.chunk
+                            .emit_code(OpCode::StringBoolConcat as u8, curr_token.line);
+                        current = Some(ExpressionKind::String);
+                    }
+                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => {
+                        self.chunk.emit_code(OpCode::Add as u8, curr_token.line)
+                    }
+                    (Some(ExpressionKind::Bool), Some(ExpressionKind::String)) => {
+                        self.chunk
+                            .emit_code(OpCode::BoolStringConcat as u8, curr_token.line);
+                        current = Some(ExpressionKind::String);
+                    }
+                    _ => panic!(
+                        "'{:?}' and '{:?}' not valid for add operator.",
+                        &previous, &current
+                    ),
+                },
+                Some(Operator::Subtract) => match (&previous, &current) {
+                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => self
+                        .chunk
+                        .emit_code(OpCode::Subtract as u8, curr_token.line),
+
+                    _ => panic!(
+                        "'{:?}' and '{:?}' not valid for minus operator.",
+                        previous, current
+                    ),
+                },
+                Some(Operator::Multiply) => match (&previous, &current) {
+                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => self
+                        .chunk
+                        .emit_code(OpCode::Multiply as u8, curr_token.line),
+
+                    _ => panic!(
+                        "'{:?}' and '{:?}' not valid for multiply operator.",
+                        previous, current
+                    ),
+                },
+                Some(Operator::Divide) => match (&previous, &current) {
+                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => {
+                        self.chunk.emit_code(OpCode::Divide as u8, curr_token.line)
+                    }
+
+                    _ => panic!(
+                        "'{:?}' and '{:?}' not valid for divide operator.",
+                        previous, current
+                    ),
+                },
+                None => {}
+            }
+            operator = None;
             self.p += 1;
-        }
-    }
-}
-
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-// OLD COMPILER
-
-pub fn compile(source: String) -> Chunk {
-    let tokens = Scanner::get_tokens(source);
-    println!("=== TOKENS ===");
-    for i in 0..tokens.len() {
-        println!("{:?}", tokens[i]);
-    }
-    let mut p = 0;
-    let mut chunk = Chunk {
-        code: vec![],
-        line: vec![],
-        strings: vec![],
-        ints: vec![],
-    };
-    let mut locals: Vec<Local> = vec![];
-    let mut local_count = 0;
-    let mut scope_depth = 0;
-
-    while p < tokens.len() {
-        let curr_token = &tokens[p];
-        match curr_token.kind {
-            TokenKind::Print => {
-                let print_token_line = curr_token.line;
-                str_expression(&mut p, &mut chunk, &tokens, &locals);
-                chunk.emit_code(OpCode::Print as u8, print_token_line)
-            }
-            TokenKind::LeftBrace => {
-                scope_depth += 1;
-                scope_depth -= 1;
-            }
-            TokenKind::Int => {
-                p += 1;
-                let identifier = &tokens[p];
-                if !matches!(identifier.kind, TokenKind::Identifier) {
-                    panic!(
-                        "Error parsing at line {}. Expected 'Identifier' token.",
-                        curr_token.line
-                    );
-                }
-                p += 1;
-                if !matches!(tokens[p].kind, TokenKind::Equal) {
-                    panic!(
-                        "Error parsing at line {}. Expected 'Equals' token.",
-                        curr_token.line
-                    );
-                }
-                if locals.iter().any(|x| &x.name == &identifier.value) {
-                    panic!("Cannot redeclare local variable");
-                }
-                int_expression(&mut p, &mut chunk, &tokens, &locals);
-                locals.push(Local {
-                    name: identifier.value.to_string(),
-                    stack_pos: local_count,
-                    kind: TokenKind::Int,
-                });
-                local_count += 1;
-            }
-            TokenKind::Str => {
-                p += 1;
-                let identifier = &tokens[p].value;
-                p += 1;
-                match tokens[p].kind {
-                    TokenKind::Equal => {}
-                    rest => panic!("Expected 'Equals' token, got '{:?}'", rest),
-                }
-                if locals.iter().any(|x| &x.name == identifier) {
-                    panic!("Cannot redeclare local variable");
-                }
-                str_expression(&mut p, &mut chunk, &tokens, &locals);
-                locals.push(Local {
-                    name: identifier.to_string(),
-                    stack_pos: local_count,
-                    kind: TokenKind::String,
-                });
-                local_count += 1;
-            }
-            TokenKind::Eof => {
-                return chunk;
-            }
-            _ => todo!("Token '{:?}' not implementet", curr_token.kind),
-        }
-        p += 1;
-    }
-    panic!("Expected eof token at end of file");
-}
-
-fn int_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals: &Vec<Local>) {
-    let mut instruction: Option<OpCode> = None;
-    loop {
-        *p += 1;
-        let next_token = &tokens[*p];
-        match next_token.kind {
-            TokenKind::Semicolon => break,
-            TokenKind::Number => {
-                let int: i64 = next_token.value.parse().unwrap();
-                chunk.ints.push(int);
-                chunk.emit_code(OpCode::Int as u8, next_token.line);
-                chunk.emit_code(chunk.ints.len() as u8 - 1, next_token.line);
-            }
-            TokenKind::Plus => {
-                if instruction.is_some() {
-                    panic!("invalid syntax at line {}", next_token.line);
-                }
-                instruction = Some(OpCode::Add);
-                continue;
-                // if add_add_instruction {
-                //     panic!("+ + is not a valid operation");
-                // }
-                // add_add_instruction = true;
-                // continue;
-            }
-            TokenKind::Minus => {
-                if instruction.is_some() {
-                    panic!("invalid syntax at line {}", next_token.line);
-                }
-                instruction = Some(OpCode::Subtract);
-                continue;
-            }
-            TokenKind::Star => {
-                if instruction.is_some() {
-                    panic!("invalid syntax at line {}", next_token.line);
-                }
-                instruction = Some(OpCode::Multiply);
-                continue;
-            }
-            TokenKind::Slash => {
-                if instruction.is_some() {
-                    panic!("invalid syntax at line {}", next_token.line);
-                }
-                instruction = Some(OpCode::Divide);
-                continue;
-            }
-            TokenKind::Identifier => {
-                chunk.emit_code(OpCode::GetLocal as u8, next_token.line);
-                for local in locals {
-                    if local.name == next_token.value {
-                        chunk.emit_code(local.stack_pos as u8, next_token.line);
-                        break;
-                    }
-                }
-            }
-            _ => panic!("Error parsing str expression, got '{:?}'", next_token.kind),
-        }
-        // if add_add_instruction {
-        //     add_add_instruction = false;
-        //     chunk.emit_code(OpCode::Add as u8, next_token.line);
-        // }
-        if let Some(ins) = instruction {
-            chunk.emit_code(ins as u8, next_token.line);
-            instruction = None;
-        }
-    }
-}
-fn str_expression(p: &mut usize, chunk: &mut Chunk, tokens: &Vec<Token>, locals: &Vec<Local>) {
-    let mut add_concatenate_instruction = false;
-    // let mut concant_instruction: Option<OpCode> = None;
-    let mut prev_kind: Option<TokenKind> = None;
-    let mut curr_kind: Option<TokenKind> = None;
-    loop {
-        *p += 1;
-        let next_token = &tokens[*p];
-        match next_token.kind {
-            TokenKind::Semicolon => break,
-            TokenKind::String | TokenKind::Number => {
-                chunk.strings.push(next_token.value.to_string());
-                prev_kind = curr_kind;
-                curr_kind = Some(next_token.kind);
-                chunk.emit_code(OpCode::String as u8, next_token.line);
-                chunk.emit_code(chunk.strings.len() as u8 - 1, next_token.line);
-            }
-            TokenKind::Plus => {
-                if add_concatenate_instruction {
-                    panic!("'+' '+' is not a valid operation");
-                }
-                add_concatenate_instruction = true;
-                continue;
-            }
-            TokenKind::Identifier => {
-                chunk.emit_code(OpCode::GetLocal as u8, next_token.line);
-
-                for local in locals {
-                    if local.name == next_token.value {
-                        prev_kind = curr_kind;
-                        curr_kind = Some(local.kind);
-                        chunk.emit_code(local.stack_pos as u8, next_token.line);
-                        break;
-                    }
-                }
-            }
-            _ => panic!("Error parsing str expression, got '{:?}'", next_token.kind),
-        }
-        if add_concatenate_instruction {
-            add_concatenate_instruction = false;
-            // println!(
-            //     "Adding concat instruction for '{:?}' and '{:?}'.",
-            //     prev_kind, curr_kind
-            // );
-            let kind = match (prev_kind, curr_kind) {
-                // (Some(TokenKind::Str), Some(TokenKind::Str)) => OpCode::StringStringConcat,
-                // (Some(TokenKind::Int), Some(TokenKind::Str)) => OpCode::IntStringConcat,
-                // (Some(TokenKind::Str), Some(TokenKind::Int)) => OpCode::StringIntConcat,
-                (Some(TokenKind::String), Some(TokenKind::String)) => OpCode::StringStringConcat,
-                (Some(TokenKind::Int), Some(TokenKind::String)) => OpCode::IntStringConcat,
-                (Some(TokenKind::String), Some(TokenKind::Int)) => OpCode::StringIntConcat,
-                _ => panic!("Unkown concat types '{:?}', '{:?}'", prev_kind, curr_kind),
-            };
-            chunk.emit_code(kind as u8, next_token.line);
         }
     }
 }
@@ -552,9 +294,32 @@ pub struct Chunk {
     pub line: Vec<usize>,
     pub strings: Vec<String>,
     pub ints: Vec<i64>,
+    pub patch_list: Vec<usize>,
+}
+
+enum Operator {
+    Add,
+    Subtract,
+    Divide,
+    Multiply,
 }
 
 impl Chunk {
+    fn emit_placeholder(&mut self, line: usize) {
+        self.patch_list.push(self.code.len());
+        self.code.push(0);
+        self.line.push(line);
+    }
+
+    fn replace_placeholder(&mut self) {
+        if let Some(p) = self.patch_list.pop() {
+            let jump_len = self.code.len() - p;
+            self.code[p] = jump_len as u8 - 6;
+        } else {
+            panic!("Patch list is empty");
+        }
+    }
+
     fn emit_code(&mut self, b: u8, line: usize) {
         self.code.push(b);
         self.line.push(line);

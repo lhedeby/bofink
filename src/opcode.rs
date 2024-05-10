@@ -18,7 +18,10 @@ pub enum OpCode {
     StringIntConcat,
     IntStringConcat,
     BoolStringConcat,
+    StringBoolConcat,
     GetLocal,
     SetLocal,
+    JumpIfFalse,
+    SetJump,
 }
 

@@ -1,1 +1,5 @@
-print false + " test";
+if false {
+	print "INSIDE IF STATEMENT";
+	print "INSIDE IF STATEMENT";
+}
+print "AFTER IF STATEMENT";

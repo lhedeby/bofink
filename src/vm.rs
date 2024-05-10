@@ -121,6 +121,20 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::False => {
                 stack.push(StackValue { b: false });
             }
+            OpCode::SetJump => {
+                ip += 1;
+                stack.push(StackValue { u: chunk.code[ip] });
+            }
+            OpCode::JumpIfFalse => {
+                let bool = unsafe { stack.pop().unwrap().b };
+                let jump_distance = unsafe { stack.pop().unwrap().u };
+                println!("JumpIfFalse, bool: {}, jump_distance: {}", bool, jump_distance);
+                if !bool {
+                    println!("JUMPOING");
+                    ip += jump_distance as usize;
+                }
+
+            }
             _ => panic!(
                 "No implementation for instruction '{:#?}'",
                 curr_instruction

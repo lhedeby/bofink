@@ -20,7 +20,7 @@ fn repl() {
         match stdin.read_line(&mut buf) {
             // Ok(_) => _ = vm.interpret(buf.clone()),
             Ok(_) => {
-                let chunk = compiler::compile(buf.clone());
+                let chunk = compiler::compile2(buf.clone());
                 vm::interpret(chunk);
             }
             Err(_) => break,
