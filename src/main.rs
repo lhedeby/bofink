@@ -32,7 +32,8 @@ fn run_file(file_path: &str) {
     match fs::read_to_string(file_path) {
         // Ok(file) => _ = vm.interpret(file),
         Ok(source) => {
-            let chunk = compiler::compile(source);
+            // let chunk = compiler::compile(source);
+            let chunk = compiler::compile2(source);
             vm::interpret(chunk);
         }
         Err(_) => panic!("Error reading file"),

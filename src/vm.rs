@@ -24,6 +24,7 @@ fn print_stack(stack: &Vec<StackValue>) {
 pub fn interpret(mut chunk: Chunk) {
     let mut ip: usize = 0;
     let mut stack: Vec<StackValue> = vec![];
+    println!("chunk: {:#?}", chunk);
 
     while ip < chunk.code.len() {
         let curr_instruction: OpCode = unsafe { std::mem::transmute(chunk.code[ip]) };
@@ -31,7 +32,7 @@ pub fn interpret(mut chunk: Chunk) {
             "=== DEBUG === executing instruction: '{:?}', line: '{}'",
             curr_instruction, chunk.line[ip]
         );
-        // print_stack(&stack);
+        print_stack(&stack);
         match curr_instruction {
             OpCode::Print => {
                 let val = stack.pop().unwrap();
@@ -68,21 +69,27 @@ pub fn interpret(mut chunk: Chunk) {
                 chunk.strings.push(s2.to_string() + s1);
                 stack.push(StackValue { u: ptr });
             }
+            OpCode::BoolStringConcat => {
+                let s1 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
+                let s2 = if unsafe { stack.pop().unwrap().b } == true {
+                    "true"
+                } else {
+                    "false"
+                };
+
+                let ptr = chunk.strings.len() as u8;
+                chunk.strings.push(s2.to_string() + &s1);
+                stack.push(StackValue { u: ptr });
+            }
             OpCode::IntStringConcat => {
                 let s1 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
                 let s2 = unsafe { stack.pop().unwrap().i };
-
-                // let s1 = unsafe { stack.pop().unwrap().i.to_string() };
-                // let s2 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
 
                 let ptr = chunk.strings.len() as u8;
                 chunk.strings.push(s2.to_string() + &s1);
                 stack.push(StackValue { u: ptr });
             }
             OpCode::StringIntConcat => {
-                // let s1 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
-                // let s2 = unsafe { stack.pop().unwrap().i };
-
                 let s1 = unsafe { stack.pop().unwrap().i.to_string() };
                 let s2 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
 
@@ -98,6 +105,7 @@ pub fn interpret(mut chunk: Chunk) {
             }
             OpCode::GetLocal => {
                 ip += 1;
+                println!("GET LOCAL");
                 stack.push(StackValue {
                     i: unsafe { stack[chunk.code[ip] as usize].i },
                 })
@@ -106,6 +114,12 @@ pub fn interpret(mut chunk: Chunk) {
                 ip += 1;
                 let slot = chunk.code[ip] as usize;
                 unsafe { stack[slot].i = stack.last().unwrap().i };
+            }
+            OpCode::True => {
+                stack.push(StackValue { b: true });
+            }
+            OpCode::False => {
+                stack.push(StackValue { b: false });
             }
             _ => panic!(
                 "No implementation for instruction '{:#?}'",

@@ -1,2 +1,1 @@
-int i1 = -10 / 2;
-print "this is the int" + i1;
+print false + " test";
