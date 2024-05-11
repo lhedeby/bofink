@@ -76,6 +76,21 @@ impl Compiler {
                     self.local_count += 1;
                     self.consume_token(TokenKind::Semicolon);
                 }
+                TokenKind::Bool => {
+                    self.p += 1;
+                    let identifier = &self.tokens[self.p].value.to_string();
+                    self.consume_token(TokenKind::Identifier);
+                    self.consume_token(TokenKind::Equal);
+                    self.expression();
+                    println!("Creating local bool");
+                    self.locals.push(Local {
+                        name: identifier.to_string(),
+                        stack_pos: self.local_count,
+                        kind: TokenKind::Bool,
+                    });
+                    self.local_count += 1;
+                    self.consume_token(TokenKind::Semicolon);
+                }
                 TokenKind::Int => {
                     self.p += 1;
                     let identifier = &self.tokens[self.p].value.to_string();
@@ -91,6 +106,11 @@ impl Compiler {
                     self.local_count += 1;
                     self.consume_token(TokenKind::Semicolon);
                 }
+                TokenKind::RightBrace => {
+                    self.p += 1;
+                    return;
+                }
+
                 TokenKind::Eof => return,
                 _ => {
                     self.statement();
@@ -104,10 +124,10 @@ impl Compiler {
             TokenKind::For => {}
             TokenKind::If => {
                 self.p += 1;
-                self.chunk.emit_code(OpCode::SetJump as u8, curr_token.line);
-                self.chunk.emit_placeholder(curr_token.line);
                 self.expression();
                 self.consume_token(TokenKind::LeftBrace);
+                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.chunk.emit_placeholder(0);
                 self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
                 self.step();
                 self.chunk.replace_placeholder();
@@ -162,9 +182,11 @@ impl Compiler {
                         if local.name == curr_token.value {
                             println!("STACK POS: {}", local.stack_pos);
                             self.chunk.emit_code(local.stack_pos as u8, curr_token.line);
-                            previous = match local.kind {
+                            previous = current;
+                            current = match local.kind {
                                 TokenKind::String => Some(ExpressionKind::String),
                                 TokenKind::Int => Some(ExpressionKind::Int),
+                                TokenKind::Bool => Some(ExpressionKind::Bool),
                                 _ => panic!("Not a valid local kind (TODO: Bool)"),
                             };
                             break;
@@ -309,12 +331,18 @@ impl Chunk {
         self.patch_list.push(self.code.len());
         self.code.push(0);
         self.line.push(line);
+        println!("CREATE PLACEHOLDER");
+        println!("{:?}", self.patch_list);
+        println!("{:?}", self.code);
     }
 
     fn replace_placeholder(&mut self) {
         if let Some(p) = self.patch_list.pop() {
-            let jump_len = self.code.len() - p;
-            self.code[p] = jump_len as u8 - 6;
+            let jump_len = self.code.len() - p - 2;
+            println!("{:?}", self.code);
+            println!("PATCHING JUMP jump len: {}", jump_len);
+            self.code[p] = jump_len as u8;
+            println!("from: {}, to: {}", p, self.code.len());
         } else {
             panic!("Patch list is empty");
         }

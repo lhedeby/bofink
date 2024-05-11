@@ -1,8 +1,9 @@
-if true {
-	print "INSIDE IF STATEMENT";
-	print "INSIDE IF STATEMENT";
-	if true {
-		print "INSIDE NESTED IF";
+bool b1 = false;
+print "before";
+if b1 {
+	print "INSIDE 1 LEVEL" + true;
+	if b1 {
+		print "NESTED LEVEL";
 	}
 }
-print "AFTER IF STATEMENT";
+print "after";

@@ -1,5 +1,3 @@
-use std::slice::Iter;
-
 pub struct Scanner {
     start: usize,
     current: usize,
@@ -116,7 +114,7 @@ impl Scanner {
             ("return".to_string(), TokenKind::Return),
             ("int".to_string(), TokenKind::Int),
             ("str".to_string(), TokenKind::Str),
-            ("bool".to_string(), TokenKind::Str),
+            ("bool".to_string(), TokenKind::Bool),
             ("while".to_string(), TokenKind::While),
             ("false".to_string(), TokenKind::False),
             ("for".to_string(), TokenKind::For),
@@ -132,56 +130,6 @@ impl Scanner {
                 return kind;
             }
         }
-        // if &self.source[self.start..self.start + 4] == "true" {
-        //     return TokenKind::True;
-        // }
-        // if &self.source[self.start..self.start + 3] == "and" {
-        //     return TokenKind::And;
-        // }
-        // if &self.source[self.start..self.start + 5] == "class" {
-        //     return TokenKind::Class;
-        // }
-        // if &self.source[self.start..self.start + 4] == "else" {
-        //     return TokenKind::Else;
-        // }
-        // if &self.source[self.start..self.start + 2] == "if" {
-        //     return TokenKind::If;
-        // }
-        // if &self.source[self.start..self.start + 3] == "nil" {
-        //     return TokenKind::Nil;
-        // }
-        // if &self.source[self.start..self.start + 2] == "or" {
-        //     return TokenKind::Or;
-        // }
-        // if &self.source[self.start..self.start + 5] == "print" {
-        //     return TokenKind::Print;
-        // }
-        // if self.start + 6 < self.source.len()
-        //     && &self.source[self.start..self.start + 6] == "return"
-        // {
-        //     return TokenKind::Return;
-        // }
-        // // if &self.source[self.start..self.start + 3] == "var" {
-        // //     return TokenKind::Var;
-        // // }
-        // if &self.source[self.start..self.start + 3] == "int" {
-        //     return TokenKind::Int;
-        // }
-        // if &self.source[self.start..self.start + 3] == "str" {
-        //     return TokenKind::Str;
-        // }
-        // if &self.source[self.start..self.start + 5] == "while" {
-        //     return TokenKind::While;
-        // }
-        // if &self.source[self.start..self.start + 5] == "false" {
-        //     return TokenKind::False;
-        // }
-        // if &self.source[self.start..self.start + 3] == "for" {
-        //     return TokenKind::For;
-        // }
-        // if &self.source[self.start..self.start + 3] == "fun" {
-        //     return TokenKind::Fun;
-        // }
         TokenKind::Identifier
     }
 

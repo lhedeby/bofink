@@ -27,21 +27,17 @@ pub fn interpret(mut chunk: Chunk) {
 
     while ip < chunk.code.len() {
         let curr_instruction: OpCode = unsafe { std::mem::transmute(chunk.code[ip]) };
-        println!("===============================");
-        for b in &chunk.code {
-            print!("{:02x?} ", b);
-        }
-        println!();
-        println!("{:indent$}{}", "", "|", indent=ip * 3);
-        println!("{:indent$}{}", "", "|", indent=ip * 3);
-        println!("{:indent$}{} {:?}", "", "|", curr_instruction, indent=ip * 3);
-        // println!(
-        //     "=== DEBUG === executing instruction: '{:?}', line: '{}'",
-        //     curr_instruction, chunk.line[ip]
-        // );
-        print_stack(&stack);
-        println!("===============================");
-        println!();
+        // println!("===============================");
+        // for b in &chunk.code {
+        //     print!("{:02x?} ", b);
+        // }
+        // println!();
+        // println!("{:indent$}{}", "", "|", indent=ip * 3);
+        // println!("{:indent$}{}", "", "|", indent=ip * 3);
+        // println!("{:indent$}{} {:?}", "", "|", curr_instruction, indent=ip * 3);
+        // print_stack(&stack);
+        // println!("===============================");
+        // println!();
 
         match curr_instruction {
             OpCode::Print => {
@@ -86,6 +82,18 @@ pub fn interpret(mut chunk: Chunk) {
                 } else {
                     "false"
                 };
+
+                let ptr = chunk.strings.len() as u8;
+                chunk.strings.push(s2.to_string() + &s1);
+                stack.push(StackValue { u: ptr });
+            }
+            OpCode::StringBoolConcat => {
+                let s1 = if unsafe { stack.pop().unwrap().b } == true {
+                    "true"
+                } else {
+                    "false"
+                };
+                let s2 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
 
                 let ptr = chunk.strings.len() as u8;
                 chunk.strings.push(s2.to_string() + &s1);
@@ -136,8 +144,8 @@ pub fn interpret(mut chunk: Chunk) {
                 stack.push(StackValue { u: chunk.code[ip] });
             }
             OpCode::JumpIfFalse => {
-                let bool = unsafe { stack.pop().unwrap().b };
                 let jump_distance = unsafe { stack.pop().unwrap().u };
+                let bool = unsafe { stack.pop().unwrap().b };
                 println!("JumpIfFalse, bool: {}, jump_distance: {}", bool, jump_distance);
                 if !bool {
                     println!("JUMPOING");
