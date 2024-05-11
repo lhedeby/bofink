@@ -9,7 +9,7 @@ union StackValue {
 }
 
 fn print_stack(stack: &Vec<StackValue>) {
-    println!("=== STACK START === ");
+    println!("Stack:");
     for v in stack {
         println!(
             "i: {}, u: {}, bool: {}",
@@ -18,7 +18,6 @@ fn print_stack(stack: &Vec<StackValue>) {
             unsafe { v.b }
         );
     }
-    println!("=== STACK END === ");
 }
 
 pub fn interpret(mut chunk: Chunk) {
@@ -28,11 +27,22 @@ pub fn interpret(mut chunk: Chunk) {
 
     while ip < chunk.code.len() {
         let curr_instruction: OpCode = unsafe { std::mem::transmute(chunk.code[ip]) };
-        println!(
-            "=== DEBUG === executing instruction: '{:?}', line: '{}'",
-            curr_instruction, chunk.line[ip]
-        );
+        println!("===============================");
+        for b in &chunk.code {
+            print!("{:02x?} ", b);
+        }
+        println!();
+        println!("{:indent$}{}", "", "|", indent=ip * 3);
+        println!("{:indent$}{}", "", "|", indent=ip * 3);
+        println!("{:indent$}{} {:?}", "", "|", curr_instruction, indent=ip * 3);
+        // println!(
+        //     "=== DEBUG === executing instruction: '{:?}', line: '{}'",
+        //     curr_instruction, chunk.line[ip]
+        // );
         print_stack(&stack);
+        println!("===============================");
+        println!();
+
         match curr_instruction {
             OpCode::Print => {
                 let val = stack.pop().unwrap();

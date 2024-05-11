@@ -1,5 +1,8 @@
-if false {
+if true {
 	print "INSIDE IF STATEMENT";
 	print "INSIDE IF STATEMENT";
+	if true {
+		print "INSIDE NESTED IF";
+	}
 }
 print "AFTER IF STATEMENT";
