@@ -1,7 +1,8 @@
-bool b1 = false;
+bool b1 = true;
 print "before";
 if b1 {
 	print "INSIDE 1 LEVEL" + true;
+	b1 = false;
 	if b1 {
 		print "NESTED LEVEL";
 	}
