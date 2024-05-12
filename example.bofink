@@ -1,10 +1,7 @@
+str s1 = "This is the unchanged string.";
 bool b1 = true;
-print "before";
 if b1 {
-	print "INSIDE 1 LEVEL" + true;
-	b1 = false;
-	if b1 {
-		print "NESTED LEVEL";
-	}
+	s1 = "String changed because b1=" + b1;
 }
-print "after";
+
+print s1;

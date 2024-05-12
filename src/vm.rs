@@ -131,7 +131,7 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::SetLocal => {
                 ip += 1;
                 let slot = chunk.code[ip] as usize;
-                unsafe { stack[slot].i = stack.last().unwrap().i };
+                unsafe { stack[slot].i = stack.pop().unwrap().i };
             }
             OpCode::True => {
                 stack.push(StackValue { b: true });

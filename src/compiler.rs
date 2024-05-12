@@ -143,6 +143,32 @@ impl Compiler {
             TokenKind::While => {}
             // dont know if I should allow arbitrary blocks
             //TokenKind::LeftBrace => {}
+
+            // Reassignment
+            TokenKind::Identifier => {
+                let identifier_name = curr_token.value.to_string();
+                let line = curr_token.line;
+                println!("name: {}", identifier_name);
+                self.p += 1;
+                self.consume_token(TokenKind::Equal);
+                // TODO
+                // from int assignment
+                self.expression();
+                // self.locals.push(Local {
+                //     name: identifier.to_string(),
+                //     stack_pos: self.local_count,
+                //     kind: TokenKind::Int,
+                // });
+                //
+                for local in &self.locals {
+                    if local.name == identifier_name {
+                        self.chunk.emit_code(OpCode::SetLocal as u8, line);
+                        self.chunk.emit_code(local.stack_pos as u8, line);
+                        break;
+                    }
+                }
+                self.consume_token(TokenKind::Semicolon);
+            }
             _ => {
                 self.expression();
             }
