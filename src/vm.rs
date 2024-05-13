@@ -139,10 +139,6 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::False => {
                 stack.push(StackValue { b: false });
             }
-            OpCode::SetJump => {
-                ip += 1;
-                stack.push(StackValue { u: chunk.code[ip] });
-            }
             OpCode::CompareString | OpCode::CompareInt => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
@@ -183,6 +179,10 @@ pub fn interpret(mut chunk: Chunk) {
                 let v2 = unsafe { stack.pop().unwrap().i };
                 stack.push(StackValue { b: v2 >= v1})
             }
+            OpCode::SetJump => {
+                ip += 1;
+                stack.push(StackValue { u: chunk.code[ip] });
+            }
             OpCode::JumpIfFalse => {
                 let jump_distance = unsafe { stack.pop().unwrap().u };
                 let bool = unsafe { stack.pop().unwrap().b };
@@ -191,7 +191,10 @@ pub fn interpret(mut chunk: Chunk) {
                     println!("JUMPOING");
                     ip += jump_distance as usize;
                 }
-
+            }
+            OpCode::JumpBack => {
+                let jump_distance = unsafe { stack.pop().unwrap().u };
+                ip -= jump_distance as usize;
             }
             _ => panic!(
                 "No implementation for instruction '{:#?}'",

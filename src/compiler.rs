@@ -151,8 +151,18 @@ impl Compiler {
             }
             TokenKind::Return => {}
             TokenKind::While => {
-                panic!("This is the while loop")
-                
+                let jump_point = self.chunk.code.len();
+                self.p += 1;
+                self.expression();
+                self.consume_token(TokenKind::LeftBrace);
+                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.chunk.emit_placeholder(0);
+                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
+                self.step();
+                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.chunk.emit_code((self.chunk.code.len() - jump_point + 2) as u8, 0);
+                self.chunk.emit_code(OpCode::JumpBack as u8, 0);
+                self.chunk.replace_placeholder();
             }
             // dont know if I should allow arbitrary blocks
             //TokenKind::LeftBrace => {}
