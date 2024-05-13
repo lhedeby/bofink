@@ -36,7 +36,7 @@ pub fn compile2(source: String) -> Chunk {
     compiler.chunk
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 enum ExpressionKind {
     Bool,
     String,
@@ -66,12 +66,16 @@ impl Compiler {
                         panic!("Cannot redeclare local variable");
                     }
                     self.consume_token(TokenKind::Equal);
-                    self.expression();
+                    let kind = self.expression();
+
+                    if kind.unwrap() != ExpressionKind::String {
+                        panic!("Declaring string but found {:?}", kind.unwrap());
+                    }
 
                     self.locals.push(Local {
                         name: identifier.to_string(),
                         stack_pos: self.local_count,
-                        kind: TokenKind::String,
+                        kind: ExpressionKind::String,
                     });
                     self.local_count += 1;
                     self.consume_token(TokenKind::Semicolon);
@@ -81,12 +85,15 @@ impl Compiler {
                     let identifier = &self.tokens[self.p].value.to_string();
                     self.consume_token(TokenKind::Identifier);
                     self.consume_token(TokenKind::Equal);
-                    self.expression();
+                    let kind = self.expression();
+                    if kind.unwrap() != ExpressionKind::Bool {
+                        panic!("Declaring bool but found {:?}", kind.unwrap());
+                    }
                     println!("Creating local bool");
                     self.locals.push(Local {
                         name: identifier.to_string(),
                         stack_pos: self.local_count,
-                        kind: TokenKind::Bool,
+                        kind: ExpressionKind::Bool,
                     });
                     self.local_count += 1;
                     self.consume_token(TokenKind::Semicolon);
@@ -96,12 +103,15 @@ impl Compiler {
                     let identifier = &self.tokens[self.p].value.to_string();
                     self.consume_token(TokenKind::Identifier);
                     self.consume_token(TokenKind::Equal);
-                    self.expression();
+                    let kind = self.expression();
+                    if kind.unwrap() != ExpressionKind::Int {
+                        panic!("Declaring int but found {:?}", kind.unwrap());
+                    }
                     println!("Creating local int");
                     self.locals.push(Local {
                         name: identifier.to_string(),
                         stack_pos: self.local_count,
-                        kind: TokenKind::Int,
+                        kind: ExpressionKind::Int,
                     });
                     self.local_count += 1;
                     self.consume_token(TokenKind::Semicolon);
@@ -140,7 +150,10 @@ impl Compiler {
                 self.consume_token(TokenKind::Semicolon);
             }
             TokenKind::Return => {}
-            TokenKind::While => {}
+            TokenKind::While => {
+                panic!("This is the while loop")
+                
+            }
             // dont know if I should allow arbitrary blocks
             //TokenKind::LeftBrace => {}
 
@@ -152,16 +165,14 @@ impl Compiler {
                 self.p += 1;
                 self.consume_token(TokenKind::Equal);
                 // TODO
-                // from int assignment
-                self.expression();
-                // self.locals.push(Local {
-                //     name: identifier.to_string(),
-                //     stack_pos: self.local_count,
-                //     kind: TokenKind::Int,
-                // });
-                //
+                // need to actually check if the reassigment type is correct. Otherwise you can
+                // produce some strange behaviours.
+                let kind = self.expression();
                 for local in &self.locals {
                     if local.name == identifier_name {
+                        if local.kind != kind.unwrap() {
+                            panic!("Reassigning local {} to a new type (old was {:?}) at line: {}", local.name, local.kind, line);
+                        }
                         self.chunk.emit_code(OpCode::SetLocal as u8, line);
                         self.chunk.emit_code(local.stack_pos as u8, line);
                         break;
@@ -174,7 +185,7 @@ impl Compiler {
             }
         }
     }
-    fn expression(&mut self) {
+    fn expression(&mut self) -> Option<ExpressionKind> {
         let mut previous: Option<ExpressionKind> = None;
         let mut current: Option<ExpressionKind> = None;
         let mut operator: Option<Operator> = None;
@@ -209,12 +220,7 @@ impl Compiler {
                             println!("STACK POS: {}", local.stack_pos);
                             self.chunk.emit_code(local.stack_pos as u8, curr_token.line);
                             previous = current;
-                            current = match local.kind {
-                                TokenKind::String => Some(ExpressionKind::String),
-                                TokenKind::Int => Some(ExpressionKind::Int),
-                                TokenKind::Bool => Some(ExpressionKind::Bool),
-                                _ => panic!("Not a valid local kind (TODO: Bool)"),
-                            };
+                            current = Some(local.kind);
                             break;
                         }
                     }
@@ -242,6 +248,36 @@ impl Compiler {
                 TokenKind::Nil => {
                     todo!("not implemented")
                 }
+                TokenKind::EqualEqual => {
+                    self.p += 1;
+                    operator = Some(Operator::EqualEqual);
+                    continue;
+                }
+                TokenKind::BangEqual => {
+                    self.p += 1;
+                    operator = Some(Operator::BangEqual);
+                    continue;
+                }
+                TokenKind::Less => {
+                    self.p += 1;
+                    operator = Some(Operator::Less);
+                    continue;
+                }
+                TokenKind::LessEqual => {
+                    self.p += 1;
+                    operator = Some(Operator::LessEqual);
+                    continue;
+                }
+                TokenKind::Greater => {
+                    self.p += 1;
+                    operator = Some(Operator::Greater);
+                    continue;
+                }
+                TokenKind::GreaterEqual => {
+                    self.p += 1;
+                    operator = Some(Operator::GreaterEqual);
+                    continue;
+                }
                 TokenKind::Semicolon => break,
                 TokenKind::LeftBrace => break,
                 TokenKind::RightBrace => {
@@ -256,6 +292,70 @@ impl Compiler {
 
             // adding operators after
             match operator {
+                Some(Operator::Greater) => {
+                    if &previous != &Some(ExpressionKind::Int) || &current != &Some(ExpressionKind::Int) {
+                        panic!("Greater than operator only usable with ints. Found '{:?}' and '{:?}'.", &previous, &current);
+                    }
+                    self.chunk.emit_code(OpCode::Greater as u8, curr_token.line);
+                    current = Some(ExpressionKind::Bool);
+                }
+                Some(Operator::GreaterEqual) => {
+                    if &previous != &Some(ExpressionKind::Int) || &current != &Some(ExpressionKind::Int) {
+                        panic!("Greater than operator only usable with ints. Found '{:?}' and '{:?}'.", &previous, &current);
+                    }
+                    self.chunk.emit_code(OpCode::GreaterEqual as u8, curr_token.line);
+                    current = Some(ExpressionKind::Bool);
+                }
+                Some(Operator::Less) => {
+                    if &previous != &Some(ExpressionKind::Int) || &current != &Some(ExpressionKind::Int) {
+                        panic!("Less than operator only usable with ints. Found '{:?}' and '{:?}'.", &previous, &current);
+                    }
+                    self.chunk.emit_code(OpCode::Less as u8, curr_token.line);
+                    current = Some(ExpressionKind::Bool);
+                }
+                Some(Operator::LessEqual) => {
+                    if &previous != &Some(ExpressionKind::Int) || &current != &Some(ExpressionKind::Int) {
+                        panic!("Less than operator only usable with ints. Found '{:?}' and '{:?}'.", &previous, &current);
+                    }
+                    self.chunk.emit_code(OpCode::LessEqual as u8, curr_token.line);
+                    current = Some(ExpressionKind::Bool);
+                }
+                Some(Operator::BangEqual) => {
+                    if &previous != &current {
+                        panic!("Cant compare different types, {:?} != {:?}.", &previous, &current);
+                    }
+                    match &current {
+                        Some(ExpressionKind::String) => {
+                            self.chunk.emit_code(OpCode::CompareStringNot as u8, curr_token.line);
+                        }
+                        Some(ExpressionKind::Bool) => {
+                            self.chunk.emit_code(OpCode::CompareBoolNot as u8, curr_token.line);
+                        }
+                        Some(ExpressionKind::Int) => {
+                            self.chunk.emit_code(OpCode::CompareIntNot as u8, curr_token.line);
+                        }
+                        None => unreachable!("Cant compare none")
+                    }
+                    current = Some(ExpressionKind::Bool);
+                }
+                Some(Operator::EqualEqual) => {
+                    if &previous != &current {
+                        panic!("Cant compare different types, {:?} != {:?}.", &previous, &current);
+                    }
+                    match &current {
+                        Some(ExpressionKind::String) => {
+                            self.chunk.emit_code(OpCode::CompareString as u8, curr_token.line);
+                        }
+                        Some(ExpressionKind::Bool) => {
+                            self.chunk.emit_code(OpCode::CompareBool as u8, curr_token.line);
+                        }
+                        Some(ExpressionKind::Int) => {
+                            self.chunk.emit_code(OpCode::CompareInt as u8, curr_token.line);
+                        }
+                        None => unreachable!("Cant compare none")
+                    }
+                    current = Some(ExpressionKind::Bool);
+                }
                 Some(Operator::Add) => match (&previous, &current) {
                     (Some(ExpressionKind::String), Some(ExpressionKind::String)) => {
                         self.chunk
@@ -325,13 +425,14 @@ impl Compiler {
             operator = None;
             self.p += 1;
         }
+        current
     }
 }
 
 struct Local {
     // name: Token,
     // depth: usize,
-    kind: TokenKind,
+    kind: ExpressionKind,
     name: String,
     stack_pos: usize,
 }
@@ -350,6 +451,12 @@ enum Operator {
     Subtract,
     Divide,
     Multiply,
+    EqualEqual,
+    BangEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
 }
 
 impl Chunk {

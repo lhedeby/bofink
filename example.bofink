@@ -1,7 +1,6 @@
-str s1 = "This is the unchanged string.";
-bool b1 = true;
-if b1 {
-	s1 = "String changed because b1=" + b1;
+int i1 = 3;
+i1 = i1 + 5;
+if i1 >= 4 {
+	print "Hello INSIDE if";
 }
-
-print s1;
+print "hello after if" + i1;

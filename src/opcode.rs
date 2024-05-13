@@ -23,5 +23,15 @@ pub enum OpCode {
     SetLocal,
     JumpIfFalse,
     SetJump,
+    CompareString,
+    CompareBool,
+    CompareInt,
+    CompareStringNot,
+    CompareBoolNot,
+    CompareIntNot,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
 }
 

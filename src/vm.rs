@@ -143,6 +143,46 @@ pub fn interpret(mut chunk: Chunk) {
                 ip += 1;
                 stack.push(StackValue { u: chunk.code[ip] });
             }
+            OpCode::CompareString | OpCode::CompareInt => {
+                let v1 = unsafe { stack.pop().unwrap().i };
+                let v2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { b: v1 == v2})
+            }
+            OpCode::CompareBool => {
+                let v1 = unsafe { stack.pop().unwrap().b };
+                let v2 = unsafe { stack.pop().unwrap().b };
+                stack.push(StackValue { b: v1 == v2})
+            }
+            OpCode::CompareStringNot | OpCode::CompareIntNot => {
+                let v1 = unsafe { stack.pop().unwrap().i };
+                let v2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { b: v1 != v2})
+            }
+            OpCode::CompareBoolNot => {
+                let v1 = unsafe { stack.pop().unwrap().b };
+                let v2 = unsafe { stack.pop().unwrap().b };
+                stack.push(StackValue { b: v1 != v2})
+            }
+            OpCode::Less => {
+                let v1 = unsafe { stack.pop().unwrap().i };
+                let v2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { b: v2 < v1})
+            }
+            OpCode::LessEqual => {
+                let v1 = unsafe { stack.pop().unwrap().i };
+                let v2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { b: v2 <= v1})
+            }
+            OpCode::Greater => {
+                let v1 = unsafe { stack.pop().unwrap().i };
+                let v2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { b: v2 > v1})
+            }
+            OpCode::GreaterEqual => {
+                let v1 = unsafe { stack.pop().unwrap().i };
+                let v2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { b: v2 >= v1})
+            }
             OpCode::JumpIfFalse => {
                 let jump_distance = unsafe { stack.pop().unwrap().u };
                 let bool = unsafe { stack.pop().unwrap().b };
