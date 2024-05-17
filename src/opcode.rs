@@ -24,6 +24,7 @@ pub enum OpCode {
     JumpIfFalse,
     SetJump,
     JumpBack,
+    JumpForward,
     CompareString,
     CompareBool,
     CompareInt,
@@ -34,5 +35,6 @@ pub enum OpCode {
     LessEqual,
     Greater,
     GreaterEqual,
+    FunctionCall,
 }
 

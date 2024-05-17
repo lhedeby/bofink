@@ -1,7 +1,16 @@
-int i1 = 2;
 
-while i1 < 5 {
-	i1 = i1 + 1;
-	print "Hello from while loop. i1 is: " + i1;
+fun test() {
+	print "Hello from function";
 }
-print "After while";
+
+print "Bofink with functions";
+
+int i = 0;
+
+while i < 3 {
+	test();
+	i = i + 1;
+}
+
+print "Done.";
+

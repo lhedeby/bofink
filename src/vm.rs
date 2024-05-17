@@ -23,11 +23,13 @@ fn print_stack(stack: &Vec<StackValue>) {
 pub fn interpret(mut chunk: Chunk) {
     let mut ip: usize = 0;
     let mut stack: Vec<StackValue> = vec![];
+    let mut call_stack: Vec<usize> = vec![];
     println!("chunk: {:#?}", chunk);
 
     while ip < chunk.code.len() {
         let curr_instruction: OpCode = unsafe { std::mem::transmute(chunk.code[ip]) };
         // println!("===============================");
+        // println!("curr: '{:?}'", curr_instruction);
         // for b in &chunk.code {
         //     print!("{:02x?} ", b);
         // }
@@ -123,7 +125,6 @@ pub fn interpret(mut chunk: Chunk) {
             }
             OpCode::GetLocal => {
                 ip += 1;
-                println!("GET LOCAL");
                 stack.push(StackValue {
                     i: unsafe { stack[chunk.code[ip] as usize].i },
                 })
@@ -142,42 +143,42 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::CompareString | OpCode::CompareInt => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v1 == v2})
+                stack.push(StackValue { b: v1 == v2 })
             }
             OpCode::CompareBool => {
                 let v1 = unsafe { stack.pop().unwrap().b };
                 let v2 = unsafe { stack.pop().unwrap().b };
-                stack.push(StackValue { b: v1 == v2})
+                stack.push(StackValue { b: v1 == v2 })
             }
             OpCode::CompareStringNot | OpCode::CompareIntNot => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v1 != v2})
+                stack.push(StackValue { b: v1 != v2 })
             }
             OpCode::CompareBoolNot => {
                 let v1 = unsafe { stack.pop().unwrap().b };
                 let v2 = unsafe { stack.pop().unwrap().b };
-                stack.push(StackValue { b: v1 != v2})
+                stack.push(StackValue { b: v1 != v2 })
             }
             OpCode::Less => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v2 < v1})
+                stack.push(StackValue { b: v2 < v1 })
             }
             OpCode::LessEqual => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v2 <= v1})
+                stack.push(StackValue { b: v2 <= v1 })
             }
             OpCode::Greater => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v2 > v1})
+                stack.push(StackValue { b: v2 > v1 })
             }
             OpCode::GreaterEqual => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v2 >= v1})
+                stack.push(StackValue { b: v2 >= v1 })
             }
             OpCode::SetJump => {
                 ip += 1;
@@ -186,15 +187,34 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::JumpIfFalse => {
                 let jump_distance = unsafe { stack.pop().unwrap().u };
                 let bool = unsafe { stack.pop().unwrap().b };
-                println!("JumpIfFalse, bool: {}, jump_distance: {}", bool, jump_distance);
+                println!(
+                    "JumpIfFalse, bool: {}, jump_distance: {}",
+                    bool, jump_distance
+                );
                 if !bool {
                     println!("JUMPOING");
                     ip += jump_distance as usize;
                 }
             }
+            OpCode::JumpForward => {
+                let jump_distance = unsafe { stack.pop().unwrap().u };
+                ip += jump_distance as usize;
+            }
             OpCode::JumpBack => {
                 let jump_distance = unsafe { stack.pop().unwrap().u };
                 ip -= jump_distance as usize;
+            }
+            OpCode::FunctionCall => {
+                ip += 1;
+                let jump_position = chunk.code[ip];
+                call_stack.push(ip+1);
+                ip = chunk.funcs[jump_position as usize];
+                continue;
+            }
+            OpCode::Return => {
+                let return_position = call_stack.pop().unwrap();
+                ip = return_position;
+                continue;
             }
             _ => panic!(
                 "No implementation for instruction '{:#?}'",
