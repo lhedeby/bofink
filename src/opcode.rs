@@ -36,5 +36,8 @@ pub enum OpCode {
     Greater,
     GreaterEqual,
     FunctionCall,
+    PopStack,
+    SetOffset,
+    PopOffset,
 }
 

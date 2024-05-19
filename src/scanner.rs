@@ -52,6 +52,7 @@ impl Scanner {
             '+' => return self.make_token(TokenKind::Plus),
             '/' => return self.make_token(TokenKind::Slash),
             '*' => return self.make_token(TokenKind::Star),
+            ':' => return self.make_token(TokenKind::Colon),
             '!' => {
                 let token = if self.check_next('=') {
                     TokenKind::BangEqual
@@ -261,6 +262,7 @@ pub enum TokenKind {
     Semicolon,
     Slash,
     Star,
+    Colon,
     // One or two character tokens.
     Bang,
     BangEqual,

@@ -6,11 +6,23 @@ use crate::scanner::{Scanner, Token, TokenKind};
 struct Compiler {
     chunk: Chunk,
     p: usize,
-    locals: Vec<Local>,
+    locals: Vec<Vec<Local>>,
     local_count: usize,
     scope_depth: usize,
     tokens: Vec<Token>,
-    functions: HashMap<String, u8>,
+    functions: HashMap<String, Function>,
+}
+
+#[derive(Clone)]
+struct Function {
+    index: u8,
+    params: Vec<Param>,
+}
+
+#[derive(Clone)]
+struct Param {
+    kind: ExpressionKind,
+    name: String,
 }
 
 pub fn compile2(source: String) -> Chunk {
@@ -25,7 +37,7 @@ pub fn compile2(source: String) -> Chunk {
         },
 
         p: 0,
-        locals: vec![],
+        locals: vec![vec![]],
         functions: HashMap::new(),
         local_count: 0,
         scope_depth: 0,
@@ -62,13 +74,12 @@ impl Compiler {
     fn step(&mut self) {
         loop {
             let curr_token = &self.tokens[self.p];
-            // println!("{:?}", curr_token);
             match curr_token.kind {
                 TokenKind::Str => {
                     self.p += 1;
                     let identifier = &self.tokens[self.p].value.to_string();
                     self.consume_token(TokenKind::Identifier);
-                    if self.locals.iter().any(|x| &x.name == identifier) {
+                    if self.locals.last().unwrap().iter().any(|x| &x.name == identifier) {
                         panic!("Cannot redeclare local variable");
                     }
                     self.consume_token(TokenKind::Equal);
@@ -78,7 +89,7 @@ impl Compiler {
                         panic!("Declaring string but found {:?}", kind.unwrap());
                     }
 
-                    self.locals.push(Local {
+                    self.locals.last_mut().unwrap().push(Local {
                         name: identifier.to_string(),
                         stack_pos: self.local_count,
                         kind: ExpressionKind::String,
@@ -95,8 +106,7 @@ impl Compiler {
                     if kind.unwrap() != ExpressionKind::Bool {
                         panic!("Declaring bool but found {:?}", kind.unwrap());
                     }
-                    println!("Creating local bool");
-                    self.locals.push(Local {
+                    self.locals.last_mut().unwrap().push(Local {
                         name: identifier.to_string(),
                         stack_pos: self.local_count,
                         kind: ExpressionKind::Bool,
@@ -113,8 +123,7 @@ impl Compiler {
                     if kind.unwrap() != ExpressionKind::Int {
                         panic!("Declaring int but found {:?}", kind.unwrap());
                     }
-                    println!("Creating local int");
-                    self.locals.push(Local {
+                    self.locals.last_mut().unwrap().push(Local {
                         name: identifier.to_string(),
                         stack_pos: self.local_count,
                         kind: ExpressionKind::Int,
@@ -127,8 +136,10 @@ impl Compiler {
                     return;
                 }
 
+                // Function declaration
                 TokenKind::Fun => {
-                    println!("creating function or something");
+                    self.locals.push(vec![]);
+                    self.local_count = 0;
                     self.p += 1;
                     let identifier = &self.tokens[self.p].value.to_string();
                     self.chunk.emit_code(OpCode::SetJump as u8, 0);
@@ -136,21 +147,56 @@ impl Compiler {
                     self.chunk.emit_code(OpCode::JumpForward as u8, 0);
                     let fun_start = self.chunk.code.len();
                     self.chunk.funcs.push(fun_start);
-                    println!("CURRENT CODE {:?}", self.chunk.code);
-                    println!("CURRENT funcs {:?}", self.chunk.funcs);
                     let fun_count = self.functions.len();
                     if fun_count >= u8::MAX as usize {
                         panic!("Too many functions, maximum allowed are {}", u8::MAX);
                     }
-                    self.functions.insert(identifier.to_string(), fun_count as u8);
                     self.p += 1;
                     self.consume_token(TokenKind::LeftParen);
+                    let mut function = Function {
+                        index: fun_count as u8,
+                        params: vec![],
+                    };
+                    while self.tokens[self.p].kind != TokenKind::RightParen {
+                        if self.tokens[self.p].kind != TokenKind::Identifier {
+                            panic!(
+                                "Expected 'identifier' token but got '{:?}'",
+                                self.tokens[self.p].kind
+                            );
+                        }
+                        let param_name = &self.tokens[self.p].value.to_string();
+                        self.p += 1;
+                        self.consume_token(TokenKind::Colon);
+                        let param_kind = match self.tokens[self.p].kind {
+                            TokenKind::Int => ExpressionKind::Int,
+                            TokenKind::Bool => ExpressionKind::Bool,
+                            TokenKind::Str => ExpressionKind::String,
+                            _ => panic!("Unexpected param type."),
+                        };
+                        self.p += 1;
+                        function.params.push(Param {
+                            name: param_name.to_string(),
+                            kind: param_kind,
+                        });
+                        self.locals.last_mut().unwrap().push(Local {
+                            name: param_name.to_string(),
+                            stack_pos: self.local_count,
+                            kind: param_kind,
+                        });
+                        self.local_count += 1;
+                        if self.tokens[self.p].kind == TokenKind::Comma {
+                            self.p += 1;
+                        }
+                    }
+
+                    self.functions.insert(identifier.to_string(), function);
                     self.consume_token(TokenKind::RightParen);
                     self.consume_token(TokenKind::LeftBrace);
                     self.step();
                     self.chunk.emit_code(OpCode::Return as u8, 0);
-                    println!("CURRENT CODE AFTER RRETURN {:?}", self.chunk.code);
                     self.chunk.replace_placeholder();
+                    self.locals.pop();
+                    self.local_count = self.locals.last().unwrap().len();
                 }
 
                 TokenKind::Eof => return,
@@ -199,21 +245,19 @@ impl Compiler {
             }
             // dont know if I should allow arbitrary blocks
             //TokenKind::LeftBrace => {}
-
-            // Reassignment
             TokenKind::Identifier => {
                 let identifier_name = curr_token.value.to_string();
                 let line = curr_token.line;
-                println!("name: {}", identifier_name);
                 self.p += 1;
                 match &self.tokens[self.p].kind {
+                    // Reassignment
                     TokenKind::Equal => {
                         // TODO
                         // need to actually check if the reassigment type is correct. Otherwise you can
                         // produce some strange behaviours.
                         self.p += 1;
                         let kind = self.expression();
-                        for local in &self.locals {
+                        for local in self.locals.last().unwrap() {
                             if local.name == identifier_name {
                                 if local.kind != kind.unwrap() {
                                     panic!(
@@ -227,12 +271,28 @@ impl Compiler {
                             }
                         }
                     }
+                    // function call
                     TokenKind::LeftParen => {
                         self.consume_token(TokenKind::LeftParen);
-                        self.consume_token(TokenKind::RightParen);
-                        let temp = self.functions.get(&identifier_name).unwrap();
+                        self.chunk.emit_code(OpCode::SetOffset as u8, 0);
+                        let function = self.functions[&identifier_name].clone();
+                        for param in function.params.clone() {
+                            let kind = self.expression();
+                            if kind.unwrap() != param.kind {
+                                panic!("Param is wrong type");
+                            }
+                            self.local_count += 1;
+                            if self.tokens[self.p].kind == TokenKind::Comma {
+                                self.consume_token(TokenKind::Comma);
+                            }
+                        }
                         self.chunk.emit_code(OpCode::FunctionCall as u8, line);
-                        self.chunk.emit_code(temp.clone(), line);
+                        self.chunk.emit_code(function.index, line);
+                        self.consume_token(TokenKind::RightParen);
+                        for _ in 0..function.params.len() {
+                            self.chunk.emit_code(OpCode::PopStack as u8, line);
+                        }
+                        self.chunk.emit_code(OpCode::PopOffset as u8, 0);
                     }
                     _ => panic!("Unexpected token '{:?}'", &self.tokens[self.p].kind),
                 }
@@ -273,9 +333,8 @@ impl Compiler {
                 TokenKind::Identifier => {
                     self.chunk
                         .emit_code(OpCode::GetLocal as u8, curr_token.line);
-                    for local in &self.locals {
+                    for local in self.locals.last().unwrap() {
                         if local.name == curr_token.value {
-                            println!("STACK POS: {}", local.stack_pos);
                             self.chunk.emit_code(local.stack_pos as u8, curr_token.line);
                             previous = current;
                             current = Some(local.kind);
@@ -338,6 +397,8 @@ impl Compiler {
                 }
                 TokenKind::Semicolon => break,
                 TokenKind::LeftBrace => break,
+                TokenKind::Comma => break,
+                TokenKind::RightParen => break,
                 TokenKind::RightBrace => {
                     self.p += 1;
                     break;
@@ -557,18 +618,12 @@ impl Chunk {
         self.patch_list.push(self.code.len());
         self.code.push(0);
         self.line.push(line);
-        println!("CREATE PLACEHOLDER");
-        println!("{:?}", self.patch_list);
-        println!("{:?}", self.code);
     }
 
     fn replace_placeholder(&mut self) {
         if let Some(p) = self.patch_list.pop() {
             let jump_len = self.code.len() - p - 2;
-            println!("{:?}", self.code);
-            println!("PATCHING JUMP jump len: {}", jump_len);
             self.code[p] = jump_len as u8;
-            println!("from: {}, to: {}", p, self.code.len());
         } else {
             panic!("Patch list is empty");
         }

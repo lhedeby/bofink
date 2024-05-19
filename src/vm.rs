@@ -24,6 +24,8 @@ pub fn interpret(mut chunk: Chunk) {
     let mut ip: usize = 0;
     let mut stack: Vec<StackValue> = vec![];
     let mut call_stack: Vec<usize> = vec![];
+    let mut stack_offset = 0;
+    let mut offsets: Vec<usize> = vec![0];
     println!("chunk: {:#?}", chunk);
 
     while ip < chunk.code.len() {
@@ -126,7 +128,7 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::GetLocal => {
                 ip += 1;
                 stack.push(StackValue {
-                    i: unsafe { stack[chunk.code[ip] as usize].i },
+                    i: unsafe { stack[(chunk.code[ip] as usize) + stack_offset].i },
                 })
             }
             OpCode::SetLocal => {
@@ -187,12 +189,7 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::JumpIfFalse => {
                 let jump_distance = unsafe { stack.pop().unwrap().u };
                 let bool = unsafe { stack.pop().unwrap().b };
-                println!(
-                    "JumpIfFalse, bool: {}, jump_distance: {}",
-                    bool, jump_distance
-                );
                 if !bool {
-                    println!("JUMPOING");
                     ip += jump_distance as usize;
                 }
             }
@@ -210,6 +207,17 @@ pub fn interpret(mut chunk: Chunk) {
                 call_stack.push(ip+1);
                 ip = chunk.funcs[jump_position as usize];
                 continue;
+            }
+            OpCode::PopStack => {
+                stack.pop();
+            }
+            OpCode::SetOffset => {
+                offsets.push(stack.len());
+                stack_offset = stack.len();
+            }
+            OpCode::PopOffset => {
+                offsets.pop();
+                stack_offset = offsets.last().unwrap().clone();
             }
             OpCode::Return => {
                 let return_position = call_stack.pop().unwrap();
