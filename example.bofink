@@ -1,7 +1,6 @@
 fun test(p1: int, p2: int) {
 	print "first param: " + p1;
 	print "second param: " + p2;
-	return;
 }
 
 print "Bofink with functions";
