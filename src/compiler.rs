@@ -25,7 +25,7 @@ struct Param {
     name: String,
 }
 
-pub fn compile2(source: String) -> Chunk {
+pub fn compile(source: String) -> Chunk {
     let mut compiler = Compiler {
         chunk: Chunk {
             code: vec![],
@@ -274,7 +274,6 @@ impl Compiler {
                     // function call
                     TokenKind::LeftParen => {
                         self.consume_token(TokenKind::LeftParen);
-                        self.chunk.emit_code(OpCode::SetOffset as u8, 0);
                         let function = self.functions[&identifier_name].clone();
                         for param in function.params.clone() {
                             let kind = self.expression();
@@ -286,6 +285,8 @@ impl Compiler {
                                 self.consume_token(TokenKind::Comma);
                             }
                         }
+                        self.chunk.emit_code(OpCode::SetOffset as u8, 0);
+                        self.chunk.emit_code(function.params.len() as u8, 0);
                         self.chunk.emit_code(OpCode::FunctionCall as u8, line);
                         self.chunk.emit_code(function.index, line);
                         self.consume_token(TokenKind::RightParen);

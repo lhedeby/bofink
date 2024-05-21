@@ -297,3 +297,42 @@ pub enum TokenKind {
     Error,
     Eof,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Scanner;
+    use crate::scanner::TokenKind;
+
+    #[test]
+    fn kinds() {
+        let source = r#"
+            int i = 1;
+            str hello = "a string";
+            print "world" + "!";
+        "#;
+        let tokens = Scanner::get_tokens(source.to_string());
+        let temp = vec![
+            TokenKind::Int,
+            TokenKind::Identifier,
+            TokenKind::Equal,
+            TokenKind::Number,
+            TokenKind::Semicolon,
+            TokenKind::Str,
+            TokenKind::Identifier,
+            TokenKind::Equal,
+            TokenKind::String,
+            TokenKind::Semicolon,
+            TokenKind::Print,
+            TokenKind::String,
+            TokenKind::Plus,
+            TokenKind::String,
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+        let mut i = 0;
+        for token in &tokens {
+            assert_eq!(token.kind, temp[i]);
+            i += 1;
+        }
+    }
+}

@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::compiler::Chunk;
 use crate::opcode::OpCode;
 
@@ -20,7 +22,7 @@ fn print_stack(stack: &Vec<StackValue>) {
     }
 }
 
-pub fn interpret(mut chunk: Chunk) {
+pub fn interpret(mut chunk: Chunk, mut out: impl Write) {
     let mut ip: usize = 0;
     let mut stack: Vec<StackValue> = vec![];
     let mut call_stack: Vec<usize> = vec![];
@@ -30,23 +32,24 @@ pub fn interpret(mut chunk: Chunk) {
 
     while ip < chunk.code.len() {
         let curr_instruction: OpCode = unsafe { std::mem::transmute(chunk.code[ip]) };
-        // println!("===============================");
-        // println!("curr: '{:?}'", curr_instruction);
-        // for b in &chunk.code {
-        //     print!("{:02x?} ", b);
-        // }
-        // println!();
-        // println!("{:indent$}{}", "", "|", indent=ip * 3);
-        // println!("{:indent$}{}", "", "|", indent=ip * 3);
-        // println!("{:indent$}{} {:?}", "", "|", curr_instruction, indent=ip * 3);
-        // print_stack(&stack);
-        // println!("===============================");
-        // println!();
+        println!("===============================");
+        println!("curr: '{:?}'", curr_instruction);
+        for b in &chunk.code {
+            print!("{:02x?} ", b);
+        }
+        println!();
+        println!("{:indent$}{}", "", "|", indent=ip * 3);
+        println!("{:indent$}{}", "", "|", indent=ip * 3);
+        println!("{:indent$}{} {:?}", "", "|", curr_instruction, indent=ip * 3);
+        print_stack(&stack);
+        println!("===============================");
+        println!();
 
         match curr_instruction {
             OpCode::Print => {
                 let val = stack.pop().unwrap();
-                println!("{}", chunk.strings[unsafe { val.u } as usize])
+                writeln!(&mut out, "{}", chunk.strings[unsafe { val.u } as usize])
+                    .expect("Unable to write to output");
             }
             OpCode::String => {
                 ip += 1;
@@ -204,7 +207,7 @@ pub fn interpret(mut chunk: Chunk) {
             OpCode::FunctionCall => {
                 ip += 1;
                 let jump_position = chunk.code[ip];
-                call_stack.push(ip+1);
+                call_stack.push(ip + 1);
                 ip = chunk.funcs[jump_position as usize];
                 continue;
             }
@@ -212,8 +215,10 @@ pub fn interpret(mut chunk: Chunk) {
                 stack.pop();
             }
             OpCode::SetOffset => {
-                offsets.push(stack.len());
-                stack_offset = stack.len();
+                ip += 1;
+                let vars_in_current_scope = chunk.code[ip];
+                stack_offset = stack.len() - vars_in_current_scope as usize;
+                offsets.push(stack_offset);
             }
             OpCode::PopOffset => {
                 offsets.pop();

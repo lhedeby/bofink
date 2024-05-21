@@ -10,22 +10,22 @@ mod vm;
 
 fn repl() {
     //REMOVE THIS
-    let mut stdin = stdin().lock();
-    let mut buf = String::new();
-    // let mut vm = Vm::new();
-    loop {
-        print!("> ");
-        let _ = stdout().flush();
-        buf.clear();
-        match stdin.read_line(&mut buf) {
-            // Ok(_) => _ = vm.interpret(buf.clone()),
-            Ok(_) => {
-                let chunk = compiler::compile2(buf.clone());
-                vm::interpret(chunk);
-            }
-            Err(_) => break,
-        }
-    }
+    // let mut stdin = stdin().lock();
+    // let mut buf = String::new();
+    // // let mut vm = Vm::new();
+    // loop {
+    //     print!("> ");
+    //     let _ = stdout().flush();
+    //     buf.clear();
+    //     match stdin.read_line(&mut buf) {
+    //         // Ok(_) => _ = vm.interpret(buf.clone()),
+    //         Ok(_) => {
+    //             // let chunk = compiler::compile(buf.clone());
+    //             // vm::interpret(chunk);
+    //         }
+    //         Err(_) => break,
+    //     }
+    // }
 }
 fn run_file(file_path: &str) {
     // let mut vm = Vm::new();
@@ -33,8 +33,8 @@ fn run_file(file_path: &str) {
         // Ok(file) => _ = vm.interpret(file),
         Ok(source) => {
             // let chunk = compiler::compile(source);
-            let chunk = compiler::compile2(source);
-            vm::interpret(chunk);
+            let chunk = compiler::compile(source);
+            vm::interpret(chunk, stdout());
         }
         Err(_) => panic!("Error reading file"),
     }
@@ -49,4 +49,154 @@ fn main() {
         _ => panic!("Unacceptable usage"),
     }
     println!("Bofink compiler stopped...");
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{compiler, vm};
+
+    fn test_code(source: &str, expected_output: &str) {
+        let chunk = compiler::compile(source.to_string());
+        let mut buf = Vec::new();
+        vm::interpret(chunk, &mut buf);
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output, expected_output);
+    }
+
+    #[test]
+    fn hello_world() {
+        let source = r#"
+            print "Hello world!";
+        "#;
+
+        let expected = "Hello world!\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn concatenation() {
+        let source = r#"
+            int i = 1;
+            str s = "word";
+            print "Concatenating " + i + s;
+        "#;
+        let expected = "Concatenating 1word\n";
+
+        test_code(source, expected)
+    }
+
+    #[test]
+    fn adding_numbers() {
+        let source = r#"
+            int i = 2 + 3 + 4 + 5;
+            print "Sum: " + i;
+        "#;
+        let expected = "Sum: 14\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn while_loop() {
+        let source = r#"
+            int i = 0;
+            while i < 5 {
+                print "hello";
+                i = i + 1;
+            }
+        "#;
+        let expected = "hello\nhello\nhello\nhello\nhello\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn while_loop_concat() {
+        let source = r#"
+            int i = 0;
+            while i < 5 {
+                print "hello" + i;
+                i = i + 1;
+            }
+        "#;
+        let expected = "hello0\nhello1\nhello2\nhello3\nhello4\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn function() {
+        let source = r#"
+            fun test(p1: int, p2: str) {
+                print "first: " + p1;
+                print "second: " + p2;
+            }
+            test(5, "a string");
+            test(10, "text");
+        "#;
+        let expected = "first: 5\nsecond: a string\nfirst: 10\nsecond: text\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn function_with_local_params() {
+        let source = r#"
+            str s1 = "first";
+            fun test(p1: str, p2: str) {
+                print p1 + "!";
+                print p2 + "!";
+            }
+            str s2 = "second";
+            test(s1, s2);
+        "#;
+        let expected = "first!\nsecond!\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn multiple_function_with_local_params() {
+        let source = r#"
+            str s1 = "first";
+            fun test(p1: str, p2: str) {
+                print p1 + "!";
+                print p2 + "!";
+            }
+            str s2 = "second";
+            test(s1, s2);
+            test(s1, s2);
+        "#;
+        let expected = "first!\nsecond!\nfirst!\nsecond!\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn if_statement() {
+        let source = r#"
+            if true {
+                print "yes1";
+            }
+            if false {
+                print "no";
+            }
+            if 1 == 1 {
+                print "yes2";
+            }
+            if "hello" != "world" {
+                print "yes3";
+            }
+
+            int i = 0;
+            i = i + 1;
+            if i == 1 {
+                print "yes4";
+            }
+        "#;
+        let expected = "yes1\nyes2\nyes3\nyes4\n";
+
+        test_code(source, expected);
+    }
 }
