@@ -1,16 +1,2 @@
-fun test(p1: int, p2: int) {
-	print "first param: " + p1;
-	print "second param: " + p2;
-}
-
-print "Bofink with functions";
-
-int i = 1;
-
-test(5, 8);
-test(10, 11);
-
-print "This works now: " + i;
-
-print "Done.";
-
+bool test = 5 % 4 == 0;
+print "test: " + test;

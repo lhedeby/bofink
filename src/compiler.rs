@@ -11,6 +11,7 @@ struct Compiler {
     scope_depth: usize,
     tokens: Vec<Token>,
     functions: HashMap<String, Function>,
+    scopes: Vec<usize>,
 }
 
 #[derive(Clone)]
@@ -41,6 +42,7 @@ pub fn compile(source: String) -> Chunk {
         functions: HashMap::new(),
         local_count: 0,
         scope_depth: 0,
+        scopes: vec![],
         tokens: Scanner::get_tokens(source),
     };
 
@@ -49,7 +51,7 @@ pub fn compile(source: String) -> Chunk {
         println!("{:?}", compiler.tokens[i]);
     }
     println!("=== TOKENS ===");
-    compiler.step();
+    compiler.declaration();
     println!("COMPILING COMPLETED");
     compiler.chunk
 }
@@ -71,66 +73,50 @@ impl Compiler {
         self.p += 1;
     }
 
-    fn step(&mut self) {
+    fn local(&mut self, exp_kind: ExpressionKind) {
+        self.p += 1;
+        let identifier = &self.tokens[self.p].value.to_string();
+        self.consume_token(TokenKind::Identifier);
+        if self
+            .locals
+            .last()
+            .unwrap()
+            .iter()
+            .any(|x| &x.name == identifier)
+        {
+            panic!("Cannot redeclare local variable");
+        }
+        self.consume_token(TokenKind::Equal);
+        let kind = self.expression();
+
+        if kind.unwrap() != exp_kind {
+            panic!("Declaring string but found {:?}", kind.unwrap());
+        }
+
+        self.locals.last_mut().unwrap().push(Local {
+            name: identifier.to_string(),
+            stack_pos: self.local_count,
+            kind: exp_kind,
+        });
+        self.local_count += 1;
+        self.consume_token(TokenKind::Semicolon);
+    }
+
+    fn declaration(&mut self) {
         loop {
             let curr_token = &self.tokens[self.p];
             match curr_token.kind {
                 TokenKind::Str => {
-                    self.p += 1;
-                    let identifier = &self.tokens[self.p].value.to_string();
-                    self.consume_token(TokenKind::Identifier);
-                    if self.locals.last().unwrap().iter().any(|x| &x.name == identifier) {
-                        panic!("Cannot redeclare local variable");
-                    }
-                    self.consume_token(TokenKind::Equal);
-                    let kind = self.expression();
-
-                    if kind.unwrap() != ExpressionKind::String {
-                        panic!("Declaring string but found {:?}", kind.unwrap());
-                    }
-
-                    self.locals.last_mut().unwrap().push(Local {
-                        name: identifier.to_string(),
-                        stack_pos: self.local_count,
-                        kind: ExpressionKind::String,
-                    });
-                    self.local_count += 1;
-                    self.consume_token(TokenKind::Semicolon);
+                    self.local(ExpressionKind::String);
                 }
                 TokenKind::Bool => {
-                    self.p += 1;
-                    let identifier = &self.tokens[self.p].value.to_string();
-                    self.consume_token(TokenKind::Identifier);
-                    self.consume_token(TokenKind::Equal);
-                    let kind = self.expression();
-                    if kind.unwrap() != ExpressionKind::Bool {
-                        panic!("Declaring bool but found {:?}", kind.unwrap());
-                    }
-                    self.locals.last_mut().unwrap().push(Local {
-                        name: identifier.to_string(),
-                        stack_pos: self.local_count,
-                        kind: ExpressionKind::Bool,
-                    });
-                    self.local_count += 1;
-                    self.consume_token(TokenKind::Semicolon);
+                    self.local(ExpressionKind::Bool);
                 }
                 TokenKind::Int => {
-                    self.p += 1;
-                    let identifier = &self.tokens[self.p].value.to_string();
-                    self.consume_token(TokenKind::Identifier);
-                    self.consume_token(TokenKind::Equal);
-                    let kind = self.expression();
-                    if kind.unwrap() != ExpressionKind::Int {
-                        panic!("Declaring int but found {:?}", kind.unwrap());
-                    }
-                    self.locals.last_mut().unwrap().push(Local {
-                        name: identifier.to_string(),
-                        stack_pos: self.local_count,
-                        kind: ExpressionKind::Int,
-                    });
-                    self.local_count += 1;
-                    self.consume_token(TokenKind::Semicolon);
+                    self.local(ExpressionKind::Int);
                 }
+                // vad ar detta????
+                // end scope bara losa allt
                 TokenKind::RightBrace => {
                     self.p += 1;
                     return;
@@ -192,7 +178,7 @@ impl Compiler {
                     self.functions.insert(identifier.to_string(), function);
                     self.consume_token(TokenKind::RightParen);
                     self.consume_token(TokenKind::LeftBrace);
-                    self.step();
+                    self.declaration();
                     self.chunk.emit_code(OpCode::Return as u8, 0);
                     self.chunk.replace_placeholder();
                     self.locals.pop();
@@ -206,18 +192,88 @@ impl Compiler {
             }
         }
     }
+
+    fn start_scope(&mut self) {
+        self.consume_token(TokenKind::LeftBrace);
+        self.scopes
+            .push(self.locals.last().expect("Locals is empty.").len());
+    }
+    fn end_scope(&mut self) {
+        let end_locals = self.locals.last().expect("Locals is empty.").len();
+        let start_locals = self.scopes.pop().expect("No scope exists.");
+        for _ in 0..(end_locals - start_locals) {
+            self.locals.last_mut().expect("Locals is empty.").pop();
+            self.chunk
+                .emit_code(OpCode::PopStack as u8, self.tokens[self.p].line);
+        }
+    }
     fn statement(&mut self) {
         let curr_token = &self.tokens[self.p];
         match curr_token.kind {
-            TokenKind::For => {}
-            TokenKind::If => {
+            TokenKind::For => {
                 self.p += 1;
-                self.expression();
-                self.consume_token(TokenKind::LeftBrace);
+                match &self.tokens[self.p].kind {
+                    TokenKind::Int => self.local(ExpressionKind::Int),
+                    _ => panic!("'int' declaration are required at the start of 'for' statement."),
+                }
+                let jump_point = self.chunk.code.len();
+                if &self.tokens[self.p].kind != &TokenKind::Semicolon {
+                    let kind = self.expression();
+                    if kind.unwrap() != ExpressionKind::Bool {
+                        panic!("Expression must evaluate to bool.");
+                    }
+                }
+                self.consume_token(TokenKind::Semicolon);
+
                 self.chunk.emit_code(OpCode::SetJump as u8, 0);
                 self.chunk.emit_placeholder(0);
                 self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
-                self.step();
+                let temp = self.p;
+                while self.tokens[self.p].kind != TokenKind::LeftBrace {
+                    self.p += 1;
+                }
+                // println!("Current token = '{:?}'", &self.tokens[self.p].kind);
+                // panic!("for loop");
+                self.start_scope();
+                println!("declaration started");
+                self.declaration();
+                println!("declaration ended");
+                self.end_scope();
+                let temp2 = self.p;
+                self.p = temp;
+                self.statement();
+                self.p = temp2;
+                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.chunk
+                    .emit_code((self.chunk.code.len() - jump_point + 2) as u8, 0);
+                self.chunk.emit_code(OpCode::JumpBack as u8, 0);
+                self.chunk.replace_placeholder();
+            }
+            TokenKind::While => {
+                let jump_point = self.chunk.code.len();
+                self.p += 1;
+                self.expression();
+                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.chunk.emit_placeholder(0);
+                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
+                self.start_scope();
+                self.declaration();
+                self.end_scope();
+                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.chunk
+                    .emit_code((self.chunk.code.len() - jump_point + 2) as u8, 0);
+                self.chunk.emit_code(OpCode::JumpBack as u8, 0);
+                self.chunk.replace_placeholder();
+            }
+            TokenKind::If => {
+                self.p += 1;
+                self.expression();
+                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.chunk.emit_placeholder(0);
+                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
+                self.start_scope();
+                self.declaration();
+                self.end_scope();
                 self.chunk.replace_placeholder();
             }
             TokenKind::Print => {
@@ -228,21 +284,6 @@ impl Compiler {
                 self.consume_token(TokenKind::Semicolon);
             }
             TokenKind::Return => {}
-            TokenKind::While => {
-                let jump_point = self.chunk.code.len();
-                self.p += 1;
-                self.expression();
-                self.consume_token(TokenKind::LeftBrace);
-                self.chunk.emit_code(OpCode::SetJump as u8, 0);
-                self.chunk.emit_placeholder(0);
-                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
-                self.step();
-                self.chunk.emit_code(OpCode::SetJump as u8, 0);
-                self.chunk
-                    .emit_code((self.chunk.code.len() - jump_point + 2) as u8, 0);
-                self.chunk.emit_code(OpCode::JumpBack as u8, 0);
-                self.chunk.replace_placeholder();
-            }
             // dont know if I should allow arbitrary blocks
             //TokenKind::LeftBrace => {}
             TokenKind::Identifier => {
@@ -334,14 +375,24 @@ impl Compiler {
                 TokenKind::Identifier => {
                     self.chunk
                         .emit_code(OpCode::GetLocal as u8, curr_token.line);
+                    let mut found = false;
                     for local in self.locals.last().unwrap() {
                         if local.name == curr_token.value {
                             self.chunk.emit_code(local.stack_pos as u8, curr_token.line);
                             previous = current;
                             current = Some(local.kind);
+                            found = true;
                             break;
                         }
                     }
+                    if !found {
+                        panic!("Could not find local '{}'.", curr_token.value);
+                    }
+                }
+                TokenKind::Percent => {
+                    self.p += 1;
+                    operator = Some(Operator::Modulo);
+                    continue;
                 }
                 TokenKind::Plus => {
                     self.p += 1;
@@ -412,6 +463,18 @@ impl Compiler {
 
             // adding operators after
             match operator {
+                Some(Operator::Modulo) => {
+                    if &previous != &Some(ExpressionKind::Int)
+                        || &current != &Some(ExpressionKind::Int)
+                    {
+                        panic!(
+                            "Greater than operator only usable with ints. Found '{:?}' and '{:?}'.",
+                            &previous, &current
+                        );
+                    }
+                    self.chunk.emit_code(OpCode::Modulo as u8, curr_token.line);
+                    current = Some(ExpressionKind::Int);
+                }
                 Some(Operator::Greater) => {
                     if &previous != &Some(ExpressionKind::Int)
                         || &current != &Some(ExpressionKind::Int)
@@ -583,6 +646,7 @@ impl Compiler {
     }
 }
 
+#[derive(Debug)]
 struct Local {
     // name: Token,
     // depth: usize,
@@ -605,6 +669,7 @@ enum Operator {
     Add,
     Subtract,
     Divide,
+    Modulo,
     Multiply,
     EqualEqual,
     BangEqual,

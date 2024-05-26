@@ -30,20 +30,31 @@ pub fn interpret(mut chunk: Chunk, mut out: impl Write) {
     let mut offsets: Vec<usize> = vec![0];
     println!("chunk: {:#?}", chunk);
 
+    let debug_loggin = false;
+
     while ip < chunk.code.len() {
         let curr_instruction: OpCode = unsafe { std::mem::transmute(chunk.code[ip]) };
-        println!("===============================");
-        println!("curr: '{:?}'", curr_instruction);
-        for b in &chunk.code {
-            print!("{:02x?} ", b);
+
+        if debug_loggin {
+            println!("===============================");
+            println!("curr: '{:?}'", curr_instruction);
+            for b in &chunk.code {
+                print!("{:02x?} ", b);
+            }
+            println!();
+            println!("{:indent$}{}", "", "|", indent = ip * 3);
+            println!("{:indent$}{}", "", "|", indent = ip * 3);
+            println!(
+                "{:indent$}{} {:?}",
+                "",
+                "|",
+                curr_instruction,
+                indent = ip * 3
+            );
+            print_stack(&stack);
+            println!("===============================");
+            println!();
         }
-        println!();
-        println!("{:indent$}{}", "", "|", indent=ip * 3);
-        println!("{:indent$}{}", "", "|", indent=ip * 3);
-        println!("{:indent$}{} {:?}", "", "|", curr_instruction, indent=ip * 3);
-        print_stack(&stack);
-        println!("===============================");
-        println!();
 
         match curr_instruction {
             OpCode::Print => {
@@ -54,6 +65,11 @@ pub fn interpret(mut chunk: Chunk, mut out: impl Write) {
             OpCode::String => {
                 ip += 1;
                 stack.push(StackValue { u: chunk.code[ip] });
+            }
+            OpCode::Modulo => {
+                let num1 = unsafe { stack.pop().unwrap().i };
+                let num2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { i: num2 % num1 });
             }
             OpCode::Add => {
                 let num1 = unsafe { stack.pop().unwrap().i };

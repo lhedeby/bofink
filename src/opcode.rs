@@ -39,5 +39,6 @@ pub enum OpCode {
     PopStack,
     SetOffset,
     PopOffset,
+    Modulo,
 }
 

@@ -199,4 +199,67 @@ mod tests {
 
         test_code(source, expected);
     }
+    #[test]
+    fn nested_while() {
+        let source = r#"
+            int i = 0;
+            while i < 3 {
+                int j = 0;
+                while j < 3 {
+                    print "i: " + i + ", j: " + j;
+                    j = j + 1;
+                }
+                i = i + 1;
+            }
+        "#;
+        let expected = "i: 0, j: 0\ni: 0, j: 1\ni: 0, j: 2\ni: 1, j: 0\ni: 1, j: 1\ni: 1, j: 2\ni: 2, j: 0\ni: 2, j: 1\ni: 2, j: 2\n";
+
+        test_code(source, expected);
+    }
+
+    #[test]
+    fn nested_while_with_if() {
+        let source = r#"
+            int i = 0;
+            while i < 5 {
+                int j = 0;
+                while j < 5 {
+                    if j == 3 {
+                        print "j==3";
+                    }
+                    j = j + 1;
+                }
+                i = i + 1;
+            }
+        "#;
+        let expected = "j==3\n".repeat(5);
+
+        test_code(source, &expected);
+    }
+
+    #[test]
+    fn for_loop() {
+        let source = r#"
+            for int i = 0; i < 3; i = i + 1; {
+                print "i" + i;
+            }
+        "#;
+        let expected = "i0\ni1\ni2\n";
+
+        test_code(source, &expected);
+    }
+
+    #[test]
+    fn nested_for_loop() {
+        let source = r#"
+            for int i = 0; i < 3; i = i + 1; {
+                for int j = 0; j < 3; j = j + 1; {
+                    print "i" + i + "j" + j;
+                }
+            }
+        "#;
+        let expected = "i0j0\ni0j1\ni0j2\ni1j0\ni1j1\ni1j2\ni2j0\ni2j1\ni2j2\n";
+
+        test_code(source, &expected);
+    }
 }
