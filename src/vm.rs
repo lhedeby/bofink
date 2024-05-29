@@ -161,6 +161,16 @@ pub fn interpret(mut chunk: Chunk, mut out: impl Write) {
             OpCode::False => {
                 stack.push(StackValue { b: false });
             }
+            OpCode::And => {
+                let v1 = unsafe { stack.pop().unwrap().b };
+                let v2 = unsafe { stack.pop().unwrap().b };
+                stack.push(StackValue { b: v1 && v2 })
+            }
+            OpCode::Or => {
+                let v1 = unsafe { stack.pop().unwrap().b };
+                let v2 = unsafe { stack.pop().unwrap().b };
+                stack.push(StackValue { b: v1 || v2 })
+            }
             OpCode::CompareString | OpCode::CompareInt => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };

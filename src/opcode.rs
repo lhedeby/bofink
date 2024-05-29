@@ -40,5 +40,7 @@ pub enum OpCode {
     SetOffset,
     PopOffset,
     Modulo,
+    And,
+    Or,
 }
 

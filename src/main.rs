@@ -262,4 +262,38 @@ mod tests {
 
         test_code(source, &expected);
     }
+
+    #[test]
+    fn and_and_or() {
+        let source = r#"
+            if true and true {
+                print "1";
+            }
+            if true and false {
+                print "2";
+            }
+            if false and true {
+                print "3";
+            }
+            if false and false {
+                print "4";
+            }
+
+            if true or true {
+                print "5";
+            }
+            if true or false {
+                print "6";
+            }
+            if false or true {
+                print "7";
+            }
+            if false or false {
+                print "8";
+            }
+        "#;
+        let expected = "1\n5\n6\n7\n";
+
+        test_code(source, &expected);
+    }
 }

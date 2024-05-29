@@ -447,6 +447,16 @@ impl Compiler {
                     operator = Some(Operator::GreaterEqual);
                     continue;
                 }
+                TokenKind::And => {
+                    self.p += 1;
+                    operator = Some(Operator::And);
+                    continue;
+                }
+                TokenKind::Or => {
+                    self.p += 1;
+                    operator = Some(Operator::Or);
+                    continue;
+                }
                 TokenKind::Semicolon => break,
                 TokenKind::LeftBrace => break,
                 TokenKind::Comma => break,
@@ -631,11 +641,22 @@ impl Compiler {
                     (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => {
                         self.chunk.emit_code(OpCode::Divide as u8, curr_token.line)
                     }
-
                     _ => panic!(
                         "'{:?}' and '{:?}' not valid for divide operator.",
                         previous, current
                     ),
+                },
+                Some(Operator::And) => match (&previous, &current) {
+                    (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
+                        self.chunk.emit_code(OpCode::And as u8, curr_token.line);
+                    }
+                    _ => panic!("Both sides of 'and' must be a boolean expression.")
+                },
+                Some(Operator::Or) => match (&previous, &current) {
+                    (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
+                        self.chunk.emit_code(OpCode::Or as u8, curr_token.line);
+                    }
+                    _ => panic!("Both sides of 'and' must be a boolean expression.")
                 },
                 None => {}
             }
@@ -677,6 +698,8 @@ enum Operator {
     LessEqual,
     Greater,
     GreaterEqual,
+    And,
+    Or,
 }
 
 impl Chunk {
