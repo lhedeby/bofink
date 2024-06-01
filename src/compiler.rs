@@ -8,22 +8,9 @@ struct Compiler {
     p: usize,
     locals: Vec<Vec<Local>>,
     local_count: usize,
-    scope_depth: usize,
     tokens: Vec<Token>,
     functions: HashMap<String, Function>,
     scopes: Vec<usize>,
-}
-
-#[derive(Clone)]
-struct Function {
-    index: u8,
-    params: Vec<Param>,
-}
-
-#[derive(Clone)]
-struct Param {
-    kind: ExpressionKind,
-    name: String,
 }
 
 pub fn compile(source: String) -> Chunk {
@@ -41,50 +28,45 @@ pub fn compile(source: String) -> Chunk {
         locals: vec![vec![]],
         functions: HashMap::new(),
         local_count: 0,
-        scope_depth: 0,
         scopes: vec![],
         tokens: Scanner::get_tokens(source),
     };
 
-    println!("=== TOKENS ===");
-    for i in 0..compiler.tokens.len() {
-        println!("{:?}", compiler.tokens[i]);
-    }
-    println!("=== TOKENS ===");
     compiler.declaration();
-    println!("COMPILING COMPLETED");
     compiler.chunk
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-enum ExpressionKind {
-    Bool,
-    String,
-    Int,
-}
 impl Compiler {
-    fn consume_token(&mut self, kind: TokenKind) {
-        if self.tokens[self.p].kind != kind {
-            panic!(
-                "Expected '{:?}' token but got '{:?}', p: '{}'",
-                kind, self.tokens[self.p].kind, self.p
-            );
+    fn consume_token(&mut self, kind: TokenKind) -> Token {
+        let token = &self.tokens[self.p];
+        if token.kind != kind {
+            panic!("Expected '{:?}' token but got '{:?}'", kind, token.kind);
         }
         self.p += 1;
-    }
-    fn check_token(&mut self, kind: TokenKind) {
-        if self.tokens[self.p].kind != kind {
-            panic!(
-                "Expected '{:?}' token but got '{:?}', p: '{}'",
-                kind, self.tokens[self.p].kind, self.p
-            );
-        }
+        return Token {
+            kind: token.kind,
+            line: token.line,
+            value: token.value.to_string(),
+        };
     }
 
-    fn local(&mut self, exp_kind: ExpressionKind) {
+    fn consume_if_match(&mut self, kind: TokenKind) -> Option<Token> {
+        let token = &self.tokens[self.p];
+        if token.kind == kind {
+            self.p += 1;
+            return Some(Token {
+                kind: token.kind,
+                line: token.line,
+                value: token.value.to_string(),
+            });
+        }
+        None
+    }
+
+    fn local_declaration(&mut self, exp_kind: ExpressionKind) {
         self.p += 1;
-        let identifier = &self.tokens[self.p].value.to_string();
-        self.consume_token(TokenKind::Identifier);
+        let consumed_token = self.consume_token(TokenKind::Identifier);
+        let identifier = &consumed_token.value.to_string();
         if self
             .locals
             .last()
@@ -101,12 +83,7 @@ impl Compiler {
             panic!("Declaring string but found {:?}", kind.unwrap());
         }
 
-        self.locals.last_mut().unwrap().push(Local {
-            name: identifier.to_string(),
-            stack_pos: self.local_count,
-            kind: exp_kind,
-        });
-        self.local_count += 1;
+        self.add_local(identifier, exp_kind);
         self.consume_token(TokenKind::Semicolon);
     }
 
@@ -115,13 +92,13 @@ impl Compiler {
             let curr_token = &self.tokens[self.p];
             match curr_token.kind {
                 TokenKind::Str => {
-                    self.local(ExpressionKind::String);
+                    self.local_declaration(ExpressionKind::String);
                 }
                 TokenKind::Bool => {
-                    self.local(ExpressionKind::Bool);
+                    self.local_declaration(ExpressionKind::Bool);
                 }
                 TokenKind::Int => {
-                    self.local(ExpressionKind::Int);
+                    self.local_declaration(ExpressionKind::Int);
                 }
                 // vad ar detta????
                 // end scope bara losa allt
@@ -132,9 +109,9 @@ impl Compiler {
 
                 // Function declaration
                 TokenKind::Fun => {
+                    self.p += 1;
                     self.locals.push(vec![]);
                     self.local_count = 0;
-                    self.p += 1;
                     let identifier = &self.tokens[self.p].value.to_string();
                     self.chunk.emit_code(OpCode::SetJump as u8, 0);
                     self.chunk.emit_placeholder(0);
@@ -152,14 +129,8 @@ impl Compiler {
                         params: vec![],
                     };
                     while self.tokens[self.p].kind != TokenKind::RightParen {
-                        if self.tokens[self.p].kind != TokenKind::Identifier {
-                            panic!(
-                                "Expected 'identifier' token but got '{:?}'",
-                                self.tokens[self.p].kind
-                            );
-                        }
-                        let param_name = &self.tokens[self.p].value.to_string();
-                        self.p += 1;
+                        let consumed_token = self.consume_token(TokenKind::Identifier);
+                        let param_name = &consumed_token.value.to_string();
                         self.consume_token(TokenKind::Colon);
                         let param_kind = match self.tokens[self.p].kind {
                             TokenKind::Int => ExpressionKind::Int,
@@ -168,19 +139,9 @@ impl Compiler {
                             _ => panic!("Unexpected param type."),
                         };
                         self.p += 1;
-                        function.params.push(Param {
-                            name: param_name.to_string(),
-                            kind: param_kind,
-                        });
-                        self.locals.last_mut().unwrap().push(Local {
-                            name: param_name.to_string(),
-                            stack_pos: self.local_count,
-                            kind: param_kind,
-                        });
-                        self.local_count += 1;
-                        if self.tokens[self.p].kind == TokenKind::Comma {
-                            self.p += 1;
-                        }
+                        function.params.push(Param { kind: param_kind });
+                        self.add_local(param_name, param_kind);
+                        self.consume_if_match(TokenKind::Comma);
                     }
 
                     self.functions.insert(identifier.to_string(), function);
@@ -206,6 +167,7 @@ impl Compiler {
         self.scopes
             .push(self.locals.last().expect("Locals is empty.").len());
     }
+
     fn end_scope(&mut self) {
         let end_locals = self.locals.last().expect("Locals is empty.").len();
         let start_locals = self.scopes.pop().expect("No scope exists.");
@@ -215,32 +177,34 @@ impl Compiler {
                 .emit_code(OpCode::PopStack as u8, self.tokens[self.p].line);
         }
     }
+
+    fn add_local(&mut self, name: &str, kind: ExpressionKind) {
+        self.locals.last_mut().unwrap().push(Local {
+            name: name.to_string(),
+            stack_pos: self.local_count,
+            kind,
+        });
+        self.local_count += 1;
+    }
+
     fn statement(&mut self) {
         let curr_token = &self.tokens[self.p];
         match curr_token.kind {
             TokenKind::For => {
                 self.p += 1;
-                self.check_token(TokenKind::Identifier);
-                let iter_name = &self.tokens[self.p].value.to_string();
-                self.p += 1;
+                let consumed_token = self.consume_token(TokenKind::Identifier);
+                let iter_name = &consumed_token.value.to_string();
                 self.consume_token(TokenKind::In);
-                self.check_token(TokenKind::Number);
-                let loop_start = &self.tokens[self.p].value.parse::<i64>().unwrap();
+                let consumed_token = self.consume_token(TokenKind::Number);
+                let loop_start = &consumed_token.value.parse::<i64>().unwrap();
 
                 // Emit local
-                self.chunk.emit_number(&self.tokens[self.p]);
-                self.locals.last_mut().unwrap().push(Local {
-                    name: iter_name.to_string(),
-                    stack_pos: self.local_count,
-                    kind: ExpressionKind::Int,
-                });
-
-                self.local_count += 1;
+                self.chunk.emit_number(&consumed_token);
+                self.add_local(iter_name, ExpressionKind::Int);
 
                 let jump_point = self.chunk.code.len();
 
                 // move on
-                self.p += 1;
                 self.consume_token(TokenKind::Colon);
 
                 // Get the local
@@ -258,16 +222,16 @@ impl Compiler {
                 }
 
                 // push the max to stack
-                self.check_token(TokenKind::Number);
+                let consumed_token = self.consume_token(TokenKind::Number);
 
-                let loop_end = &self.tokens[self.p].value.parse::<i64>().unwrap();
-                self.chunk.emit_number(&self.tokens[self.p]);
+                let loop_end = &consumed_token.value.parse::<i64>().unwrap();
+                self.chunk.emit_number(&consumed_token);
                 if loop_start <= loop_end {
                     self.chunk
-                        .emit_code(OpCode::Less as u8, self.tokens[self.p].line);
+                        .emit_code(OpCode::Less as u8, consumed_token.line);
                 } else {
                     self.chunk
-                        .emit_code(OpCode::Greater as u8, self.tokens[self.p].line);
+                        .emit_code(OpCode::Greater as u8, consumed_token.line);
                 }
 
                 // Setup jump
@@ -275,23 +239,19 @@ impl Compiler {
                 self.chunk.emit_placeholder(0);
                 self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
 
-                self.p += 1;
                 let mut step = 0;
                 let mut negative_increment = false;
 
                 // check for custom increment
-                if self.tokens[self.p].kind == TokenKind::Colon {
-                    self.p += 1;
-                    if self.tokens[self.p].kind == TokenKind::Minus {
+                if let Some(_) = self.consume_if_match(TokenKind::Colon) {
+                    if let Some(_) = self.consume_if_match(TokenKind::Minus) {
                         negative_increment = true;
-                        self.p += 1;
                     }
-                    self.check_token(TokenKind::Number);
-                    step = self.tokens[self.p].value.parse::<i64>().unwrap();
+                    let consumed_token = self.consume_token(TokenKind::Number);
+                    step = consumed_token.value.parse::<i64>().unwrap();
                     if negative_increment {
                         step *= -1;
                     }
-                    self.p += 1;
                 }
                 self.start_scope();
                 self.declaration();
@@ -302,7 +262,7 @@ impl Compiler {
                 self.chunk.emit_code(OpCode::GetLocal as u8, 0);
                 let mut found = false;
                 for local in self.locals.last().unwrap() {
-                    if local.name == *iter_name {
+                    if &local.name == iter_name {
                         self.chunk.emit_code(local.stack_pos as u8, 0);
                         found = true;
                         break;
@@ -318,10 +278,13 @@ impl Compiler {
                     } else {
                         step = -1
                     }
-
                 }
                 // TODO: Dont use dummy token
-                let dummy_token = Token { value: step.to_string(), kind: TokenKind::Number, line: 0};
+                let dummy_token = Token {
+                    value: step.to_string(),
+                    kind: TokenKind::Number,
+                    line: 0,
+                };
                 self.chunk.emit_number(&dummy_token);
                 self.chunk.emit_code(OpCode::Add as u8, 0);
                 // set the local
@@ -383,9 +346,6 @@ impl Compiler {
                 match &self.tokens[self.p].kind {
                     // Reassignment
                     TokenKind::Equal => {
-                        // TODO
-                        // need to actually check if the reassigment type is correct. Otherwise you can
-                        // produce some strange behaviours.
                         self.p += 1;
                         let kind = self.expression();
                         for local in self.locals.last().unwrap() {
@@ -412,9 +372,7 @@ impl Compiler {
                                 panic!("Param is wrong type");
                             }
                             self.local_count += 1;
-                            if self.tokens[self.p].kind == TokenKind::Comma {
-                                self.consume_token(TokenKind::Comma);
-                            }
+                            self.consume_if_match(TokenKind::Comma);
                         }
                         self.chunk.emit_code(OpCode::SetOffset as u8, 0);
                         self.chunk.emit_code(function.params.len() as u8, 0);
@@ -764,16 +722,6 @@ struct Local {
     stack_pos: usize,
 }
 
-#[derive(Debug)]
-pub struct Chunk {
-    pub code: Vec<u8>,
-    pub line: Vec<usize>,
-    pub strings: Vec<String>,
-    pub ints: Vec<i64>,
-    pub patch_list: Vec<usize>,
-    pub funcs: Vec<usize>,
-}
-
 enum Operator {
     Add,
     Subtract,
@@ -788,6 +736,34 @@ enum Operator {
     GreaterEqual,
     And,
     Or,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+enum ExpressionKind {
+    Bool,
+    String,
+    Int,
+}
+
+#[derive(Clone)]
+struct Function {
+    index: u8,
+    params: Vec<Param>,
+}
+
+#[derive(Clone)]
+struct Param {
+    kind: ExpressionKind,
+}
+
+#[derive(Debug)]
+pub struct Chunk {
+    pub code: Vec<u8>,
+    pub line: Vec<usize>,
+    pub strings: Vec<String>,
+    pub ints: Vec<i64>,
+    pub patch_list: Vec<usize>,
+    pub funcs: Vec<usize>,
 }
 
 impl Chunk {
@@ -805,7 +781,6 @@ impl Chunk {
             panic!("Patch list is empty");
         }
     }
-
     fn emit_code(&mut self, b: u8, line: usize) {
         self.code.push(b);
         self.line.push(line);

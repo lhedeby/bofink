@@ -293,7 +293,6 @@ pub enum TokenKind {
     Return,
     True,
     In,
-    // Var,
     Int,
     Str,
     Bool,

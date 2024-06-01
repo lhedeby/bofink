@@ -28,7 +28,6 @@ pub fn interpret(mut chunk: Chunk, mut out: impl Write) {
     let mut call_stack: Vec<usize> = vec![];
     let mut stack_offset = 0;
     let mut offsets: Vec<usize> = vec![0];
-    println!("chunk: {:#?}", chunk);
 
     let debug_loggin = false;
 
