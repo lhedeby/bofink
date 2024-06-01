@@ -72,6 +72,14 @@ impl Compiler {
         }
         self.p += 1;
     }
+    fn check_token(&mut self, kind: TokenKind) {
+        if self.tokens[self.p].kind != kind {
+            panic!(
+                "Expected '{:?}' token but got '{:?}', p: '{}'",
+                kind, self.tokens[self.p].kind, self.p
+            );
+        }
+    }
 
     fn local(&mut self, exp_kind: ExpressionKind) {
         self.p += 1;
@@ -212,37 +220,119 @@ impl Compiler {
         match curr_token.kind {
             TokenKind::For => {
                 self.p += 1;
-                match &self.tokens[self.p].kind {
-                    TokenKind::Int => self.local(ExpressionKind::Int),
-                    _ => panic!("'int' declaration are required at the start of 'for' statement."),
-                }
+                self.check_token(TokenKind::Identifier);
+                let iter_name = &self.tokens[self.p].value.to_string();
+                self.p += 1;
+                self.consume_token(TokenKind::In);
+                self.check_token(TokenKind::Number);
+                let loop_start = &self.tokens[self.p].value.parse::<i64>().unwrap();
+
+                // Emit local
+                self.chunk.emit_number(&self.tokens[self.p]);
+                self.locals.last_mut().unwrap().push(Local {
+                    name: iter_name.to_string(),
+                    stack_pos: self.local_count,
+                    kind: ExpressionKind::Int,
+                });
+
+                self.local_count += 1;
+
                 let jump_point = self.chunk.code.len();
-                if &self.tokens[self.p].kind != &TokenKind::Semicolon {
-                    let kind = self.expression();
-                    if kind.unwrap() != ExpressionKind::Bool {
-                        panic!("Expression must evaluate to bool.");
+
+                // move on
+                self.p += 1;
+                self.consume_token(TokenKind::Colon);
+
+                // Get the local
+                self.chunk.emit_code(OpCode::GetLocal as u8, 0);
+                let mut found = false;
+                for local in self.locals.last().unwrap() {
+                    if &local.name == iter_name {
+                        self.chunk.emit_code(local.stack_pos as u8, 0);
+                        found = true;
+                        break;
                     }
                 }
-                self.consume_token(TokenKind::Semicolon);
+                if !found {
+                    panic!("Could not find local '{}'.", iter_name);
+                }
 
+                // push the max to stack
+                self.check_token(TokenKind::Number);
+
+                let loop_end = &self.tokens[self.p].value.parse::<i64>().unwrap();
+                self.chunk.emit_number(&self.tokens[self.p]);
+                if loop_start <= loop_end {
+                    self.chunk
+                        .emit_code(OpCode::Less as u8, self.tokens[self.p].line);
+                } else {
+                    self.chunk
+                        .emit_code(OpCode::Greater as u8, self.tokens[self.p].line);
+                }
+
+                // Setup jump
                 self.chunk.emit_code(OpCode::SetJump as u8, 0);
                 self.chunk.emit_placeholder(0);
                 self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
-                let temp = self.p;
-                while self.tokens[self.p].kind != TokenKind::LeftBrace {
+
+                self.p += 1;
+                let mut step = 0;
+                let mut negative_increment = false;
+
+                // check for custom increment
+                if self.tokens[self.p].kind == TokenKind::Colon {
+                    self.p += 1;
+                    if self.tokens[self.p].kind == TokenKind::Minus {
+                        negative_increment = true;
+                        self.p += 1;
+                    }
+                    self.check_token(TokenKind::Number);
+                    step = self.tokens[self.p].value.parse::<i64>().unwrap();
+                    if negative_increment {
+                        step *= -1;
+                    }
                     self.p += 1;
                 }
-                // println!("Current token = '{:?}'", &self.tokens[self.p].kind);
-                // panic!("for loop");
                 self.start_scope();
-                println!("declaration started");
                 self.declaration();
-                println!("declaration ended");
                 self.end_scope();
-                let temp2 = self.p;
-                self.p = temp;
-                self.statement();
-                self.p = temp2;
+
+                // add increment to local
+                // Get the local
+                self.chunk.emit_code(OpCode::GetLocal as u8, 0);
+                let mut found = false;
+                for local in self.locals.last().unwrap() {
+                    if local.name == *iter_name {
+                        self.chunk.emit_code(local.stack_pos as u8, 0);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    panic!("Could not find local '{}'.", iter_name);
+                }
+                // Push the increment to the stack
+                if step == 0 {
+                    if loop_start <= loop_end {
+                        step = 1;
+                    } else {
+                        step = -1
+                    }
+
+                }
+                // TODO: Dont use dummy token
+                let dummy_token = Token { value: step.to_string(), kind: TokenKind::Number, line: 0};
+                self.chunk.emit_number(&dummy_token);
+                self.chunk.emit_code(OpCode::Add as u8, 0);
+                // set the local
+                for local in self.locals.last().unwrap() {
+                    if &local.name == iter_name {
+                        self.chunk.emit_code(OpCode::SetLocal as u8, 0);
+                        self.chunk.emit_code(local.stack_pos as u8, 0);
+                        break;
+                    }
+                }
+
                 self.chunk.emit_code(OpCode::SetJump as u8, 0);
                 self.chunk
                     .emit_code((self.chunk.code.len() - jump_point + 2) as u8, 0);
@@ -650,13 +740,13 @@ impl Compiler {
                     (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
                         self.chunk.emit_code(OpCode::And as u8, curr_token.line);
                     }
-                    _ => panic!("Both sides of 'and' must be a boolean expression.")
+                    _ => panic!("Both sides of 'and' must be a boolean expression."),
                 },
                 Some(Operator::Or) => match (&previous, &current) {
                     (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
                         self.chunk.emit_code(OpCode::Or as u8, curr_token.line);
                     }
-                    _ => panic!("Both sides of 'and' must be a boolean expression.")
+                    _ => panic!("Both sides of 'and' must be a boolean expression."),
                 },
                 None => {}
             }
@@ -669,8 +759,6 @@ impl Compiler {
 
 #[derive(Debug)]
 struct Local {
-    // name: Token,
-    // depth: usize,
     kind: ExpressionKind,
     name: String,
     stack_pos: usize,

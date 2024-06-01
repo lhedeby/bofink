@@ -121,6 +121,7 @@ impl Scanner {
             ("false".to_string(), TokenKind::False),
             ("for".to_string(), TokenKind::For),
             ("fun".to_string(), TokenKind::Fun),
+            ("in".to_string(), TokenKind::In),
         ]
     }
 
@@ -291,6 +292,7 @@ pub enum TokenKind {
     Print,
     Return,
     True,
+    In,
     // Var,
     Int,
     Str,
