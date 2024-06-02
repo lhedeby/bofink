@@ -1,14 +1,14 @@
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum OpCode {
-    Constant,
+    _Constant,
     Return,
-    Negate,
+    _Negate,
     Add,
     Subtract,
     Multiply,
     Divide,
-    Nil,
+    _Nil,
     True,
     False,
     Print,

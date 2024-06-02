@@ -18,8 +18,10 @@ fn main() {
 fn run_file(file_path: &str) {
     match fs::read_to_string(file_path) {
         Ok(source) => {
-            let chunk = compiler::compile(source);
-            vm::interpret(chunk, stdout());
+            match compiler::compile(source) {
+                Ok(chunk) => vm::interpret(chunk, &mut stdout()),
+                Err(e) => println!("Compiler error: {}", e)
+            }
         }
         Err(_) => panic!("Error reading file"),
     }
@@ -29,12 +31,24 @@ fn run_file(file_path: &str) {
 mod tests {
     use crate::{compiler, vm};
 
-    fn test_code(source: &str, expected_output: &str) {
-        let chunk = compiler::compile(source.to_string());
+    fn test_output(source: &str, expected_output: &str) {
         let mut buf = Vec::new();
-        vm::interpret(chunk, &mut buf);
+            match compiler::compile(source.to_string()) {
+                Ok(chunk) => vm::interpret(chunk, &mut buf),
+                Err(e) => println!("Compiler error: {}", e)
+            }
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(output, expected_output);
+    }
+
+    // TODO: test error types
+    fn test_error(source: &str) {
+        let _result = compiler::compile(source.to_string());
+    }
+
+    #[test]
+    fn assignment_without_declaration_should_fail() {
+        test_error("some code");
     }
 
     #[test]
@@ -45,7 +59,7 @@ mod tests {
 
         let expected = "Hello world!\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -57,7 +71,7 @@ mod tests {
         "#;
         let expected = "Concatenating 1word\n";
 
-        test_code(source, expected)
+        test_output(source, expected)
     }
 
     #[test]
@@ -68,7 +82,7 @@ mod tests {
         "#;
         let expected = "Sum: 14\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -82,7 +96,7 @@ mod tests {
         "#;
         let expected = "hello\nhello\nhello\nhello\nhello\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -96,7 +110,7 @@ mod tests {
         "#;
         let expected = "hello0\nhello1\nhello2\nhello3\nhello4\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -111,7 +125,7 @@ mod tests {
         "#;
         let expected = "first: 5\nsecond: a string\nfirst: 10\nsecond: text\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -127,7 +141,7 @@ mod tests {
         "#;
         let expected = "first!\nsecond!\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -144,7 +158,7 @@ mod tests {
         "#;
         let expected = "first!\nsecond!\nfirst!\nsecond!\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -171,7 +185,7 @@ mod tests {
         "#;
         let expected = "yes1\nyes2\nyes3\nyes4\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
     #[test]
     fn nested_while() {
@@ -188,7 +202,7 @@ mod tests {
         "#;
         let expected = "i: 0, j: 0\ni: 0, j: 1\ni: 0, j: 2\ni: 1, j: 0\ni: 1, j: 1\ni: 1, j: 2\ni: 2, j: 0\ni: 2, j: 1\ni: 2, j: 2\n";
 
-        test_code(source, expected);
+        test_output(source, expected);
     }
 
     #[test]
@@ -208,7 +222,7 @@ mod tests {
         "#;
         let expected = "j==3\n".repeat(5);
 
-        test_code(source, &expected);
+        test_output(source, &expected);
     }
 
     #[test]
@@ -220,7 +234,7 @@ mod tests {
         "#;
         let expected = "i0\ni1\ni2\n";
 
-        test_code(source, &expected);
+        test_output(source, &expected);
     }
 
     #[test]
@@ -234,7 +248,7 @@ mod tests {
         "#;
         let expected = "i0j0\ni0j1\ni0j2\ni1j0\ni1j1\ni1j2\ni2j0\ni2j1\ni2j2\n";
 
-        test_code(source, &expected);
+        test_output(source, &expected);
     }
 
     #[test]
@@ -268,6 +282,36 @@ mod tests {
         "#;
         let expected = "1\n5\n6\n7\n";
 
-        test_code(source, &expected);
+        test_output(source, &expected);
+    }
+
+    #[test]
+    fn comparing() {
+        let source = r#"
+            int i = 5;
+            if i > 3 {
+                print "3";
+            }
+            if i < 8 {
+                print "8";
+            }
+            if i < 3 {
+                print "not this";
+            }
+            if i > 8 {
+                print "not this";
+            }
+            if i == 5 {
+                print "5";
+            }
+            if i != 5 {
+                print "not this";
+            }
+            if i != 7 {
+                print "7";
+            }
+        "#;
+        let expected = "3\n8\n5\n7\n";
+        test_output(source, expected)
     }
 }

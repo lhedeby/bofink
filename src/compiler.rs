@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::opcode::OpCode;
 use crate::scanner::{Scanner, Token, TokenKind};
@@ -13,7 +14,112 @@ struct Compiler {
     scopes: Vec<usize>,
 }
 
-pub fn compile(source: String) -> Chunk {
+// should implement display
+#[derive(Debug)]
+// should it be public?
+pub enum CompilerError {
+    UnexpectedToken {
+        expected: TokenKind,
+        actual: TokenKind,
+        line: usize,
+    },
+    Redeclaration(usize),
+    DelcarationType {
+        expected: ExpressionKind,
+        actual: ExpressionKind,
+        line: usize,
+    },
+    MaxFunctions,
+    UnknownParamType(usize),
+    MissingLocal {
+        name: String,
+        line: usize,
+    },
+    ReassignmentType {
+        expected: ExpressionKind,
+        actual: ExpressionKind,
+        line: usize,
+    },
+    ParamType {
+        expected: ExpressionKind,
+        actual: ExpressionKind,
+        line: usize,
+    },
+
+    NumberOperator {
+        // TODO: Implement display instead
+        operator: Operator,
+        first: ExpressionKind,
+        second: ExpressionKind,
+    },
+    ComparisonType {
+        first: ExpressionKind,
+        second: ExpressionKind,
+        line: usize,
+    },
+    InvalidOperatorTypes {
+        first: ExpressionKind,
+        second: ExpressionKind,
+        line: usize,
+    },
+    BooleanExpression(usize),
+}
+
+impl fmt::Display for CompilerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // TODO: Should Tokenkind impl display?
+            CompilerError::UnexpectedToken {
+                expected,
+                actual,
+                line,
+            } => write!(
+                f,
+                "Unexpected token | Expected '{:?}' but got '{:?}' | at line {}.",
+                expected, actual, line
+            ),
+            CompilerError::Redeclaration(line) => write!(f, "Cannot redeclare variables | at line {}", line),
+            CompilerError::DelcarationType {
+                expected,
+                actual,
+                line,
+            } => write!(f, "Expression does not match declaration type | Expected '{:?}' but got '{:?}' | at line {}", expected, actual, line),
+            CompilerError::MaxFunctions => write!(f, "Too many functions | At the moment bofink only supports {} functions in any program", u8::MAX),
+            CompilerError::UnknownParamType(line) => write!(f, "Unexpected paramater type | at line {}", line),
+            CompilerError::MissingLocal { name, line } => write!(f, "Could not find local with name '{}' | at line {}", name, line),
+            CompilerError::ReassignmentType {
+                expected,
+                actual,
+                line,
+            } => write!(f, "Trying to reassign wrong type to local | Expected '{:?}' but got '{:?}' | at line {}", expected, actual, line),
+            CompilerError::ParamType {
+                expected,
+                actual,
+                line,
+            } => write!(f, "Unexpected type for parameter | Expected '{:?}' but got '{:?}' | at line {}", expected, actual, line),
+            CompilerError::NumberOperator {
+                operator,
+                first,
+                second,
+            } => write!(f, "{:?} operator only usable with ints | Found '{:?}' and '{:?}'", operator, first, second),
+            CompilerError::ComparisonType {
+                first,
+                second,
+                line,
+            } => write!(f, "Invalid comparison types | Got '{:?}' and '{:?}' | at line '{}'",first, second, line),
+            CompilerError::InvalidOperatorTypes {
+                first,
+                second,
+                line,
+            } => write!(f, "Invalid types for operator | Got '{:?}' and '{:?} | at line {}'", first, second, line),
+            CompilerError::BooleanExpression(line) => write!(f, "Expected boolean expressions | at line {}", line),
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, CompilerError>;
+
+pub fn compile(source: String) -> Result<Chunk> {
     let mut compiler = Compiler {
         chunk: Chunk {
             code: vec![],
@@ -32,22 +138,26 @@ pub fn compile(source: String) -> Chunk {
         tokens: Scanner::get_tokens(source),
     };
 
-    compiler.declaration();
-    compiler.chunk
+    compiler.declaration()?;
+    Ok(compiler.chunk)
 }
 
 impl Compiler {
-    fn consume_token(&mut self, kind: TokenKind) -> Token {
+    fn consume_token(&mut self, kind: TokenKind) -> Result<Token> {
         let token = &self.tokens[self.p];
         if token.kind != kind {
-            panic!("Expected '{:?}' token but got '{:?}'", kind, token.kind);
+            return Err(CompilerError::UnexpectedToken {
+                expected: kind,
+                actual: token.kind,
+                line: token.line,
+            });
         }
         self.p += 1;
-        return Token {
+        return Ok(Token {
             kind: token.kind,
             line: token.line,
             value: token.value.to_string(),
-        };
+        });
     }
 
     fn consume_if_match(&mut self, kind: TokenKind) -> Option<Token> {
@@ -63,9 +173,9 @@ impl Compiler {
         None
     }
 
-    fn local_declaration(&mut self, exp_kind: ExpressionKind) {
+    fn local_declaration(&mut self, exp_kind: ExpressionKind) -> Result<()> {
         self.p += 1;
-        let consumed_token = self.consume_token(TokenKind::Identifier);
+        let consumed_token = self.consume_token(TokenKind::Identifier)?;
         let identifier = &consumed_token.value.to_string();
         if self
             .locals
@@ -74,39 +184,43 @@ impl Compiler {
             .iter()
             .any(|x| &x.name == identifier)
         {
-            panic!("Cannot redeclare local variable");
+            return Err(CompilerError::Redeclaration(consumed_token.line));
         }
-        self.consume_token(TokenKind::Equal);
-        let kind = self.expression();
+        let consumed_token = self.consume_token(TokenKind::Equal)?;
+        let kind = self.expression()?;
 
-        if kind.unwrap() != exp_kind {
-            panic!("Declaring string but found {:?}", kind.unwrap());
+        if kind != exp_kind {
+            return Err(CompilerError::DelcarationType {
+                expected: kind,
+                actual: exp_kind,
+                line: consumed_token.line,
+            });
         }
 
         self.add_local(identifier, exp_kind);
-        self.consume_token(TokenKind::Semicolon);
+        self.consume_token(TokenKind::Semicolon)?;
+        Ok(())
     }
 
-    fn declaration(&mut self) {
+    fn declaration(&mut self) -> Result<()> {
         loop {
             let curr_token = &self.tokens[self.p];
             match curr_token.kind {
                 TokenKind::Str => {
-                    self.local_declaration(ExpressionKind::String);
+                    self.local_declaration(ExpressionKind::String)?;
                 }
                 TokenKind::Bool => {
-                    self.local_declaration(ExpressionKind::Bool);
+                    self.local_declaration(ExpressionKind::Bool)?;
                 }
                 TokenKind::Int => {
-                    self.local_declaration(ExpressionKind::Int);
+                    self.local_declaration(ExpressionKind::Int)?;
                 }
                 // vad ar detta????
                 // end scope bara losa allt
                 TokenKind::RightBrace => {
                     self.p += 1;
-                    return;
+                    return Ok(());
                 }
-
                 // Function declaration
                 TokenKind::Fun => {
                     self.p += 1;
@@ -120,23 +234,27 @@ impl Compiler {
                     self.chunk.funcs.push(fun_start);
                     let fun_count = self.functions.len();
                     if fun_count >= u8::MAX as usize {
-                        panic!("Too many functions, maximum allowed are {}", u8::MAX);
+                        return Err(CompilerError::MaxFunctions);
                     }
                     self.p += 1;
-                    self.consume_token(TokenKind::LeftParen);
+                    self.consume_token(TokenKind::LeftParen)?;
                     let mut function = Function {
                         index: fun_count as u8,
                         params: vec![],
                     };
                     while self.tokens[self.p].kind != TokenKind::RightParen {
-                        let consumed_token = self.consume_token(TokenKind::Identifier);
+                        let consumed_token = self.consume_token(TokenKind::Identifier)?;
                         let param_name = &consumed_token.value.to_string();
-                        self.consume_token(TokenKind::Colon);
+                        self.consume_token(TokenKind::Colon)?;
                         let param_kind = match self.tokens[self.p].kind {
                             TokenKind::Int => ExpressionKind::Int,
                             TokenKind::Bool => ExpressionKind::Bool,
                             TokenKind::Str => ExpressionKind::String,
-                            _ => panic!("Unexpected param type."),
+                            _ => {
+                                return Err(CompilerError::UnknownParamType(
+                                    self.tokens[self.p].line,
+                                ))
+                            }
                         };
                         self.p += 1;
                         function.params.push(Param { kind: param_kind });
@@ -145,27 +263,28 @@ impl Compiler {
                     }
 
                     self.functions.insert(identifier.to_string(), function);
-                    self.consume_token(TokenKind::RightParen);
-                    self.consume_token(TokenKind::LeftBrace);
-                    self.declaration();
+                    self.consume_token(TokenKind::RightParen)?;
+                    self.consume_token(TokenKind::LeftBrace)?;
+                    self.declaration()?;
                     self.chunk.emit_code(OpCode::Return as u8, 0);
                     self.chunk.replace_placeholder();
                     self.locals.pop();
                     self.local_count = self.locals.last().unwrap().len();
                 }
 
-                TokenKind::Eof => return,
+                TokenKind::Eof => return Ok(()),
                 _ => {
-                    self.statement();
+                    self.statement()?;
                 }
             }
         }
     }
 
-    fn start_scope(&mut self) {
-        self.consume_token(TokenKind::LeftBrace);
+    fn start_scope(&mut self) -> Result<()> {
+        self.consume_token(TokenKind::LeftBrace)?;
         self.scopes
             .push(self.locals.last().expect("Locals is empty.").len());
+        Ok(())
     }
 
     fn end_scope(&mut self) {
@@ -187,15 +306,15 @@ impl Compiler {
         self.local_count += 1;
     }
 
-    fn statement(&mut self) {
+    fn statement(&mut self) -> Result<()> {
         let curr_token = &self.tokens[self.p];
         match curr_token.kind {
             TokenKind::For => {
                 self.p += 1;
-                let consumed_token = self.consume_token(TokenKind::Identifier);
+                let consumed_token = self.consume_token(TokenKind::Identifier)?;
                 let iter_name = &consumed_token.value.to_string();
-                self.consume_token(TokenKind::In);
-                let consumed_token = self.consume_token(TokenKind::Number);
+                self.consume_token(TokenKind::In)?;
+                let consumed_token = self.consume_token(TokenKind::Number)?;
                 let loop_start = &consumed_token.value.parse::<i64>().unwrap();
 
                 // Emit local
@@ -205,9 +324,10 @@ impl Compiler {
                 let jump_point = self.chunk.code.len();
 
                 // move on
-                self.consume_token(TokenKind::Colon);
+                self.consume_token(TokenKind::Colon)?;
 
                 // Get the local
+                // TODO: Dont need to check. It should always be the last variable
                 self.chunk.emit_code(OpCode::GetLocal as u8, 0);
                 let mut found = false;
                 for local in self.locals.last().unwrap() {
@@ -218,11 +338,15 @@ impl Compiler {
                     }
                 }
                 if !found {
-                    panic!("Could not find local '{}'.", iter_name);
+                    // should also be removed
+                    return Err(CompilerError::MissingLocal {
+                        name: iter_name.to_string(),
+                        line: 0,
+                    });
                 }
 
                 // push the max to stack
-                let consumed_token = self.consume_token(TokenKind::Number);
+                let consumed_token = self.consume_token(TokenKind::Number)?;
 
                 let loop_end = &consumed_token.value.parse::<i64>().unwrap();
                 self.chunk.emit_number(&consumed_token);
@@ -247,18 +371,20 @@ impl Compiler {
                     if let Some(_) = self.consume_if_match(TokenKind::Minus) {
                         negative_increment = true;
                     }
-                    let consumed_token = self.consume_token(TokenKind::Number);
+                    let consumed_token = self.consume_token(TokenKind::Number)?;
                     step = consumed_token.value.parse::<i64>().unwrap();
                     if negative_increment {
                         step *= -1;
                     }
                 }
-                self.start_scope();
-                self.declaration();
+                self.start_scope()?;
+                self.declaration()?;
                 self.end_scope();
 
                 // add increment to local
                 // Get the local
+                // TODO: loop lookup should also be removed? no need to check cause we know it
+                // exists. Maybe lookup should be a seperate function aswell
                 self.chunk.emit_code(OpCode::GetLocal as u8, 0);
                 let mut found = false;
                 for local in self.locals.last().unwrap() {
@@ -269,7 +395,11 @@ impl Compiler {
                     }
                 }
                 if !found {
-                    panic!("Could not find local '{}'.", iter_name);
+                    // this should be removed aswell
+                    return Err(CompilerError::MissingLocal {
+                        name: iter_name.to_string(),
+                        line: 0,
+                    });
                 }
                 // Push the increment to the stack
                 if step == 0 {
@@ -305,12 +435,12 @@ impl Compiler {
             TokenKind::While => {
                 let jump_point = self.chunk.code.len();
                 self.p += 1;
-                self.expression();
+                self.expression()?;
                 self.chunk.emit_code(OpCode::SetJump as u8, 0);
                 self.chunk.emit_placeholder(0);
                 self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
-                self.start_scope();
-                self.declaration();
+                self.start_scope()?;
+                self.declaration()?;
                 self.end_scope();
                 self.chunk.emit_code(OpCode::SetJump as u8, 0);
                 self.chunk
@@ -320,21 +450,21 @@ impl Compiler {
             }
             TokenKind::If => {
                 self.p += 1;
-                self.expression();
+                self.expression()?;
                 self.chunk.emit_code(OpCode::SetJump as u8, 0);
                 self.chunk.emit_placeholder(0);
                 self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
-                self.start_scope();
-                self.declaration();
+                self.start_scope()?;
+                self.declaration()?;
                 self.end_scope();
                 self.chunk.replace_placeholder();
             }
             TokenKind::Print => {
                 let print_token_line = curr_token.line;
                 self.p += 1;
-                self.expression();
+                self.expression()?;
                 self.chunk.emit_code(OpCode::Print as u8, print_token_line);
-                self.consume_token(TokenKind::Semicolon);
+                self.consume_token(TokenKind::Semicolon)?;
             }
             TokenKind::Return => {}
             // dont know if I should allow arbitrary blocks
@@ -347,14 +477,15 @@ impl Compiler {
                     // Reassignment
                     TokenKind::Equal => {
                         self.p += 1;
-                        let kind = self.expression();
+                        let kind = self.expression()?;
                         for local in self.locals.last().unwrap() {
                             if local.name == identifier_name {
-                                if local.kind != kind.unwrap() {
-                                    panic!(
-                                "Reassigning local {} to a new type (old was {:?}) at line: {}",
-                                local.name, local.kind, line
-                            );
+                                if local.kind != kind {
+                                    return Err(CompilerError::ReassignmentType {
+                                        expected: local.kind,
+                                        actual: kind,
+                                        line: self.tokens[self.p].line,
+                                    });
                                 }
                                 self.chunk.emit_code(OpCode::SetLocal as u8, line);
                                 self.chunk.emit_code(local.stack_pos as u8, line);
@@ -364,12 +495,17 @@ impl Compiler {
                     }
                     // function call
                     TokenKind::LeftParen => {
-                        self.consume_token(TokenKind::LeftParen);
+                        self.consume_token(TokenKind::LeftParen)?;
                         let function = self.functions[&identifier_name].clone();
                         for param in function.params.clone() {
-                            let kind = self.expression();
-                            if kind.unwrap() != param.kind {
-                                panic!("Param is wrong type");
+                            let kind = self.expression().unwrap();
+                            if kind != param.kind {
+                                return Err(CompilerError::ParamType {
+                                    expected: param.kind,
+                                    actual: kind,
+                                    // TODO: self.current_line() to get the current line
+                                    line: self.tokens[self.p].line,
+                                });
                             }
                             self.local_count += 1;
                             self.consume_if_match(TokenKind::Comma);
@@ -378,22 +514,31 @@ impl Compiler {
                         self.chunk.emit_code(function.params.len() as u8, 0);
                         self.chunk.emit_code(OpCode::FunctionCall as u8, line);
                         self.chunk.emit_code(function.index, line);
-                        self.consume_token(TokenKind::RightParen);
+                        self.consume_token(TokenKind::RightParen)?;
                         for _ in 0..function.params.len() {
                             self.chunk.emit_code(OpCode::PopStack as u8, line);
                         }
                         self.chunk.emit_code(OpCode::PopOffset as u8, 0);
                     }
-                    _ => panic!("Unexpected token '{:?}'", &self.tokens[self.p].kind),
+                    _ => {
+                        // Is this even possible? maybe just panic
+                        return Err(CompilerError::UnexpectedToken {
+                            // TODO: self.get_curr_token()?
+                            actual: self.tokens[self.p].kind,
+                            expected: TokenKind::Nil,
+                            line: self.tokens[self.p].line,
+                        });
+                    }
                 }
-                self.consume_token(TokenKind::Semicolon);
+                self.consume_token(TokenKind::Semicolon)?;
             }
             _ => {
-                self.expression();
+                self.expression()?;
             }
         }
+        Ok(())
     }
-    fn expression(&mut self) -> Option<ExpressionKind> {
+    fn expression(&mut self) -> Result<ExpressionKind> {
         let mut previous: Option<ExpressionKind> = None;
         let mut current: Option<ExpressionKind> = None;
         let mut operator: Option<Operator> = None;
@@ -424,6 +569,7 @@ impl Compiler {
                     self.chunk
                         .emit_code(OpCode::GetLocal as u8, curr_token.line);
                     let mut found = false;
+                    // TODO: Function
                     for local in self.locals.last().unwrap() {
                         if local.name == curr_token.value {
                             self.chunk.emit_code(local.stack_pos as u8, curr_token.line);
@@ -434,7 +580,10 @@ impl Compiler {
                         }
                     }
                     if !found {
-                        panic!("Could not find local '{}'.", curr_token.value);
+                        return Err(CompilerError::MissingLocal {
+                            name: curr_token.value.to_string(),
+                            line: curr_token.line,
+                        });
                     }
                 }
                 TokenKind::Percent => {
@@ -513,10 +662,13 @@ impl Compiler {
                     self.p += 1;
                     break;
                 }
-                _ => panic!(
-                    "Unexpected token '{:?}' at line {}",
-                    curr_token.kind, curr_token.line
-                ),
+                _ => {
+                    return Err(CompilerError::UnexpectedToken {
+                        expected: TokenKind::Nil,
+                        actual: curr_token.kind,
+                        line: curr_token.line,
+                    })
+                }
             }
 
             // adding operators after
@@ -525,10 +677,12 @@ impl Compiler {
                     if &previous != &Some(ExpressionKind::Int)
                         || &current != &Some(ExpressionKind::Int)
                     {
-                        panic!(
-                            "Greater than operator only usable with ints. Found '{:?}' and '{:?}'.",
-                            &previous, &current
-                        );
+                        // TODO: Is it possible for these to be none? unwrap and check earlier?
+                        return Err(CompilerError::NumberOperator {
+                            operator: Operator::Modulo,
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                        });
                     }
                     self.chunk.emit_code(OpCode::Modulo as u8, curr_token.line);
                     current = Some(ExpressionKind::Int);
@@ -537,22 +691,26 @@ impl Compiler {
                     if &previous != &Some(ExpressionKind::Int)
                         || &current != &Some(ExpressionKind::Int)
                     {
-                        panic!(
-                            "Greater than operator only usable with ints. Found '{:?}' and '{:?}'.",
-                            &previous, &current
-                        );
+                        return Err(CompilerError::NumberOperator {
+                            operator: Operator::Greater,
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                        });
                     }
                     self.chunk.emit_code(OpCode::Greater as u8, curr_token.line);
                     current = Some(ExpressionKind::Bool);
                 }
+                // TODO: Make this 1 big patter (gt | g | modul... etc) and then use
+                // operator.get_opcode to get the code to emit?
                 Some(Operator::GreaterEqual) => {
                     if &previous != &Some(ExpressionKind::Int)
                         || &current != &Some(ExpressionKind::Int)
                     {
-                        panic!(
-                            "Greater than operator only usable with ints. Found '{:?}' and '{:?}'.",
-                            &previous, &current
-                        );
+                        return Err(CompilerError::NumberOperator {
+                            operator: Operator::GreaterEqual,
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                        });
                     }
                     self.chunk
                         .emit_code(OpCode::GreaterEqual as u8, curr_token.line);
@@ -562,10 +720,11 @@ impl Compiler {
                     if &previous != &Some(ExpressionKind::Int)
                         || &current != &Some(ExpressionKind::Int)
                     {
-                        panic!(
-                            "Less than operator only usable with ints. Found '{:?}' and '{:?}'.",
-                            &previous, &current
-                        );
+                        return Err(CompilerError::NumberOperator {
+                            operator: Operator::Less,
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                        });
                     }
                     self.chunk.emit_code(OpCode::Less as u8, curr_token.line);
                     current = Some(ExpressionKind::Bool);
@@ -574,10 +733,11 @@ impl Compiler {
                     if &previous != &Some(ExpressionKind::Int)
                         || &current != &Some(ExpressionKind::Int)
                     {
-                        panic!(
-                            "Less than operator only usable with ints. Found '{:?}' and '{:?}'.",
-                            &previous, &current
-                        );
+                        return Err(CompilerError::NumberOperator {
+                            operator: Operator::LessEqual,
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                        });
                     }
                     self.chunk
                         .emit_code(OpCode::LessEqual as u8, curr_token.line);
@@ -585,10 +745,12 @@ impl Compiler {
                 }
                 Some(Operator::BangEqual) => {
                     if &previous != &current {
-                        panic!(
-                            "Cant compare different types, {:?} != {:?}.",
-                            &previous, &current
-                        );
+                        // TODO: remove unwraps
+                        return Err(CompilerError::ComparisonType {
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                            line: self.tokens[self.p].line,
+                        });
                     }
                     match &current {
                         Some(ExpressionKind::String) => {
@@ -609,10 +771,12 @@ impl Compiler {
                 }
                 Some(Operator::EqualEqual) => {
                     if &previous != &current {
-                        panic!(
-                            "Cant compare different types, {:?} != {:?}.",
-                            &previous, &current
-                        );
+                        // TODO: remove unwraps
+                        return Err(CompilerError::ComparisonType {
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                            line: self.tokens[self.p].line,
+                        });
                     }
                     match &current {
                         Some(ExpressionKind::String) => {
@@ -660,58 +824,75 @@ impl Compiler {
                             .emit_code(OpCode::BoolStringConcat as u8, curr_token.line);
                         current = Some(ExpressionKind::String);
                     }
-                    _ => panic!(
-                        "'{:?}' and '{:?}' not valid for add operator.",
-                        &previous, &current
-                    ),
+                    _ => {
+                        // TODO: remove unwraps and fix line
+                        return Err(CompilerError::InvalidOperatorTypes {
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                            line: self.tokens[self.p].line,
+                        });
+                    }
                 },
                 Some(Operator::Subtract) => match (&previous, &current) {
                     (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => self
                         .chunk
                         .emit_code(OpCode::Subtract as u8, curr_token.line),
 
-                    _ => panic!(
-                        "'{:?}' and '{:?}' not valid for minus operator.",
-                        previous, current
-                    ),
+                    _ => {
+                        // TODO: remove unwraps and fix line
+                        return Err(CompilerError::InvalidOperatorTypes {
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                            line: self.tokens[self.p].line,
+                        });
+                    }
                 },
                 Some(Operator::Multiply) => match (&previous, &current) {
                     (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => self
                         .chunk
                         .emit_code(OpCode::Multiply as u8, curr_token.line),
 
-                    _ => panic!(
-                        "'{:?}' and '{:?}' not valid for multiply operator.",
-                        previous, current
-                    ),
+                    _ => {
+                        // TODO: remove unwraps and fix line
+                        return Err(CompilerError::InvalidOperatorTypes {
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                            line: self.tokens[self.p].line,
+                        });
+                    }
                 },
                 Some(Operator::Divide) => match (&previous, &current) {
                     (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => {
                         self.chunk.emit_code(OpCode::Divide as u8, curr_token.line)
                     }
-                    _ => panic!(
-                        "'{:?}' and '{:?}' not valid for divide operator.",
-                        previous, current
-                    ),
+                    _ => {
+                        // TODO: remove unwraps and fix line
+                        return Err(CompilerError::InvalidOperatorTypes {
+                            first: previous.unwrap(),
+                            second: current.unwrap(),
+                            line: self.tokens[self.p].line,
+                        });
+                    }
                 },
                 Some(Operator::And) => match (&previous, &current) {
                     (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
                         self.chunk.emit_code(OpCode::And as u8, curr_token.line);
                     }
-                    _ => panic!("Both sides of 'and' must be a boolean expression."),
+                    // TODO: Maybe change all these to a generic one? 'ExpressionType' error?
+                    _ => return Err(CompilerError::BooleanExpression(curr_token.line)),
                 },
                 Some(Operator::Or) => match (&previous, &current) {
                     (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
                         self.chunk.emit_code(OpCode::Or as u8, curr_token.line);
                     }
-                    _ => panic!("Both sides of 'and' must be a boolean expression."),
+                    _ => return Err(CompilerError::BooleanExpression(curr_token.line)),
                 },
                 None => {}
             }
             operator = None;
             self.p += 1;
         }
-        current
+        Ok(current.unwrap())
     }
 }
 
@@ -722,6 +903,8 @@ struct Local {
     stack_pos: usize,
 }
 
+// TODO: derive display instead
+#[derive(Debug)]
 enum Operator {
     Add,
     Subtract,

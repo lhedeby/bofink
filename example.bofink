@@ -1,3 +1,6 @@
-for i in 10:0:-3 {
+int b = 53;
+c = 3;
+b = "hello";
+for i in 10:0:-3 
 	print "i: " + i;
 }

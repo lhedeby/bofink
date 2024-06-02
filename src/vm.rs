@@ -22,7 +22,7 @@ fn print_stack(stack: &Vec<StackValue>) {
     }
 }
 
-pub fn interpret(mut chunk: Chunk, mut out: impl Write) {
+pub fn interpret(mut chunk: Chunk, out: &mut impl Write) {
     let mut ip: usize = 0;
     let mut stack: Vec<StackValue> = vec![];
     let mut call_stack: Vec<usize> = vec![];
@@ -58,7 +58,7 @@ pub fn interpret(mut chunk: Chunk, mut out: impl Write) {
         match curr_instruction {
             OpCode::Print => {
                 let val = stack.pop().unwrap();
-                writeln!(&mut out, "{}", chunk.strings[unsafe { val.u } as usize])
+                writeln!(out, "{}", chunk.strings[unsafe { val.u } as usize])
                     .expect("Unable to write to output");
             }
             OpCode::String => {
