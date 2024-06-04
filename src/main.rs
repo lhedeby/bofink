@@ -4,6 +4,7 @@ mod compiler;
 mod opcode;
 mod scanner;
 mod vm;
+mod enums;
 
 fn main() {
     println!("Bofink compiler started...");

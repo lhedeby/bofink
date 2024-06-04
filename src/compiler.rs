@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::fmt;
+
+use crate::enums::{CompilerError, ExpressionKind, Operator, TokenKind};
 
 use crate::opcode::OpCode;
-use crate::scanner::{Scanner, Token, TokenKind};
+use crate::scanner::{Scanner, Token};
 
 struct Compiler {
     chunk: Chunk,
@@ -12,114 +13,6 @@ struct Compiler {
     tokens: Vec<Token>,
     functions: HashMap<String, Function>,
     scopes: Vec<usize>,
-}
-
-// should implement display
-#[derive(Debug)]
-// should it be public?
-pub enum CompilerError {
-    InvalidToken {
-        actual: TokenKind,
-        line: usize,
-    },
-    UnexpectedToken {
-        expected: TokenKind,
-        actual: TokenKind,
-        line: usize,
-    },
-    Redeclaration(usize),
-    DelcarationType {
-        expected: ExpressionKind,
-        actual: ExpressionKind,
-        line: usize,
-    },
-    MaxFunctions,
-    UnknownParamType(usize),
-    MissingLocal {
-        name: String,
-        line: usize,
-    },
-    ReassignmentType {
-        expected: ExpressionKind,
-        actual: ExpressionKind,
-        line: usize,
-    },
-    ParamType {
-        expected: ExpressionKind,
-        actual: ExpressionKind,
-        line: usize,
-    },
-
-    NumberOperator {
-        // TODO: Implement display instead
-        operator: Operator,
-        first: ExpressionKind,
-        second: ExpressionKind,
-    },
-    ComparisonType {
-        first: ExpressionKind,
-        second: ExpressionKind,
-        line: usize,
-    },
-    InvalidOperatorTypes {
-        first: ExpressionKind,
-        second: ExpressionKind,
-        line: usize,
-    },
-    BooleanExpression(usize),
-}
-
-impl fmt::Display for CompilerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CompilerError::InvalidToken { actual, line } => write!(f, "Unexpected token '{:?}' | at line {}", actual, line),
-            // TODO: Should Tokenkind impl display?
-            CompilerError::UnexpectedToken {
-                expected,
-                actual,
-                line,
-            } => write!(
-                f,
-                "Unexpected token | Expected '{:?}' but got '{:?}' | at line {}",
-                expected, actual, line
-            ),
-            CompilerError::Redeclaration(line) => write!(f, "Cannot redeclare variables | at line {}", line),
-            CompilerError::DelcarationType {
-                expected,
-                actual,
-                line,
-            } => write!(f, "Expression does not match declaration type | Expected '{:?}' but got '{:?}' | at line {}", expected, actual, line),
-            CompilerError::MaxFunctions => write!(f, "Too many functions | At the moment bofink only supports {} functions in any program", u8::MAX),
-            CompilerError::UnknownParamType(line) => write!(f, "Unexpected paramater type | at line {}", line),
-            CompilerError::MissingLocal { name, line } => write!(f, "Could not find local with name '{}' | at line {}", name, line),
-            CompilerError::ReassignmentType {
-                expected,
-                actual,
-                line,
-            } => write!(f, "Trying to reassign wrong type to local | Expected '{:?}' but got '{:?}' | at line {}", expected, actual, line),
-            CompilerError::ParamType {
-                expected,
-                actual,
-                line,
-            } => write!(f, "Unexpected type for parameter | Expected '{:?}' but got '{:?}' | at line {}", expected, actual, line),
-            CompilerError::NumberOperator {
-                operator,
-                first,
-                second,
-            } => write!(f, "{:?} operator only usable with ints | Found '{:?}' and '{:?}'", operator, first, second),
-            CompilerError::ComparisonType {
-                first,
-                second,
-                line,
-            } => write!(f, "Invalid comparison types | Got '{:?}' and '{:?}' | at line '{}'",first, second, line),
-            CompilerError::InvalidOperatorTypes {
-                first,
-                second,
-                line,
-            } => write!(f, "Invalid types for operator | Got '{:?}' and '{:?} | at line {}'", first, second, line),
-            CompilerError::BooleanExpression(line) => write!(f, "Expected boolean expressions | at line {}", line),
-        }
-    }
 }
 
 type Result<T> = std::result::Result<T, CompilerError>;
@@ -690,7 +583,6 @@ impl Compiler {
                     (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
                         self.emit_opcode(OpCode::And);
                     }
-                    // TODO: Maybe change all these to a generic one? 'ExpressionType' error?
                     _ => return Err(CompilerError::BooleanExpression(self.current_line())),
                 },
                 Some(Operator::Or) => match (&previous, &current) {
@@ -790,29 +682,6 @@ struct Local {
 }
 
 // TODO: derive display instead
-#[derive(Debug)]
-enum Operator {
-    Add,
-    Subtract,
-    Divide,
-    Modulo,
-    Multiply,
-    EqualEqual,
-    BangEqual,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    And,
-    Or,
-}
-
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-enum ExpressionKind {
-    Bool,
-    String,
-    Int,
-}
 
 #[derive(Clone)]
 struct Function {

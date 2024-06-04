@@ -1,3 +1,5 @@
+use crate::enums::TokenKind;
+
 pub struct Scanner {
     start: usize,
     current: usize,
@@ -248,57 +250,6 @@ pub struct Token {
     pub kind: TokenKind,
     pub line: usize,
     pub value: String,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum TokenKind {
-    // Single-character tokens.
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
-    Comma,
-    Dot,
-    Minus,
-    Plus,
-    Semicolon,
-    Slash,
-    Star,
-    Colon,
-    Percent,
-    // One or two character tokens.
-    Bang,
-    BangEqual,
-    Equal,
-    EqualEqual,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-    // Literals.
-    Identifier,
-    String,
-    Number,
-    // Keywords.
-    And,
-    Class,
-    Else,
-    False,
-    For,
-    Fun,
-    If,
-    Nil,
-    Or,
-    Print,
-    Return,
-    True,
-    In,
-    Int,
-    Str,
-    Bool,
-    While,
-    Error,
-    Eof,
 }
 
 #[cfg(test)]
