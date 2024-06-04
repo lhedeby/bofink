@@ -17,12 +17,10 @@ fn main() {
 
 fn run_file(file_path: &str) {
     match fs::read_to_string(file_path) {
-        Ok(source) => {
-            match compiler::compile(source) {
-                Ok(chunk) => vm::interpret(chunk, &mut stdout()),
-                Err(e) => println!("Compiler error: {}", e)
-            }
-        }
+        Ok(source) => match compiler::compile(source) {
+            Ok(chunk) => vm::interpret(chunk, &mut stdout()),
+            Err(e) => println!("Compiler error: {}", e),
+        },
         Err(_) => panic!("Error reading file"),
     }
 }
@@ -33,10 +31,10 @@ mod tests {
 
     fn test_output(source: &str, expected_output: &str) {
         let mut buf = Vec::new();
-            match compiler::compile(source.to_string()) {
-                Ok(chunk) => vm::interpret(chunk, &mut buf),
-                Err(e) => println!("Compiler error: {}", e)
-            }
+        match compiler::compile(source.to_string()) {
+            Ok(chunk) => vm::interpret(chunk, &mut buf),
+            Err(e) => panic!("Compiler error: {}", e),
+        }
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(output, expected_output);
     }
@@ -67,9 +65,13 @@ mod tests {
         let source = r#"
             int i = 1;
             str s = "word";
-            print "Concatenating " + i + s;
+            bool b = true;
+            print s + i;
+            print s + b;
+            print i + s;
+            print b + s;
         "#;
-        let expected = "Concatenating 1word\n";
+        let expected = "word1\nwordtrue\n1word\ntrueword\n";
 
         test_output(source, expected)
     }
@@ -310,8 +312,62 @@ mod tests {
             if i != 7 {
                 print "7";
             }
+            if 5 <= 5 {
+                print "5";
+            }
+            if 5 >= 5 {
+                print "5";
+            }
         "#;
-        let expected = "3\n8\n5\n7\n";
+        let expected = "3\n8\n5\n7\n5\n5\n";
         test_output(source, expected)
+    }
+
+    #[test]
+    fn arithmetic() {
+        let source = r#"
+            int i = 5 - 3;
+            if i != 2 {
+                print "something went wrong";
+            }
+
+            int j = 5 + 5;
+            if j != 10 {
+                print "something went wrong";
+            }
+
+            int k = 10 / 2;
+            if k != 5 {
+                print "something went wrong";
+            }
+
+            int l = 5 * 5;
+            if l != 25 {
+                print "something went wrong";
+            }
+
+            int h = 7 % 3;
+            if h != 1 {
+                print "something went wrong";
+            }
+        "#;
+        let expected = "";
+        test_output(source, expected)
+    }
+
+    // TODO: Issue: need "" to cast in when printing. Error?
+    #[test]
+    fn recursion() {
+        let source = r#"
+            fun test(i: int) {
+                print "" + i;
+                if i > 0 {
+                    test(i - 1);
+                }
+            }
+            test(5);
+        "#;
+        let expected = "5\n4\n3\n2\n1\n0\n";
+        test_output(source, expected);
     }
 }

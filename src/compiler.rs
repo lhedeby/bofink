@@ -18,6 +18,10 @@ struct Compiler {
 #[derive(Debug)]
 // should it be public?
 pub enum CompilerError {
+    InvalidToken {
+        actual: TokenKind,
+        line: usize,
+    },
     UnexpectedToken {
         expected: TokenKind,
         actual: TokenKind,
@@ -68,6 +72,7 @@ pub enum CompilerError {
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            CompilerError::InvalidToken { actual, line } => write!(f, "Unexpected token '{:?}' | at line {}", actual, line),
             // TODO: Should Tokenkind impl display?
             CompilerError::UnexpectedToken {
                 expected,
@@ -75,7 +80,7 @@ impl fmt::Display for CompilerError {
                 line,
             } => write!(
                 f,
-                "Unexpected token | Expected '{:?}' but got '{:?}' | at line {}.",
+                "Unexpected token | Expected '{:?}' but got '{:?}' | at line {}",
                 expected, actual, line
             ),
             CompilerError::Redeclaration(line) => write!(f, "Cannot redeclare variables | at line {}", line),
@@ -191,8 +196,8 @@ impl Compiler {
 
         if kind != exp_kind {
             return Err(CompilerError::DelcarationType {
-                expected: kind,
-                actual: exp_kind,
+                expected: exp_kind,
+                actual: kind,
                 line: consumed_token.line,
             });
         }
@@ -227,9 +232,10 @@ impl Compiler {
                     self.locals.push(vec![]);
                     self.local_count = 0;
                     let identifier = &self.tokens[self.p].value.to_string();
-                    self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                    self.emit_opcode(OpCode::SetJump);
+                    // todo self placeholder?
                     self.chunk.emit_placeholder(0);
-                    self.chunk.emit_code(OpCode::JumpForward as u8, 0);
+                    self.emit_opcode(OpCode::JumpForward);
                     let fun_start = self.chunk.code.len();
                     self.chunk.funcs.push(fun_start);
                     let fun_count = self.functions.len();
@@ -242,19 +248,15 @@ impl Compiler {
                         index: fun_count as u8,
                         params: vec![],
                     };
-                    while self.tokens[self.p].kind != TokenKind::RightParen {
+                    while self.current_kind() != TokenKind::RightParen {
                         let consumed_token = self.consume_token(TokenKind::Identifier)?;
                         let param_name = &consumed_token.value.to_string();
                         self.consume_token(TokenKind::Colon)?;
-                        let param_kind = match self.tokens[self.p].kind {
+                        let param_kind = match self.current_kind() {
                             TokenKind::Int => ExpressionKind::Int,
                             TokenKind::Bool => ExpressionKind::Bool,
                             TokenKind::Str => ExpressionKind::String,
-                            _ => {
-                                return Err(CompilerError::UnknownParamType(
-                                    self.tokens[self.p].line,
-                                ))
-                            }
+                            _ => return Err(CompilerError::UnknownParamType(self.current_line())),
                         };
                         self.p += 1;
                         function.params.push(Param { kind: param_kind });
@@ -266,7 +268,7 @@ impl Compiler {
                     self.consume_token(TokenKind::RightParen)?;
                     self.consume_token(TokenKind::LeftBrace)?;
                     self.declaration()?;
-                    self.chunk.emit_code(OpCode::Return as u8, 0);
+                    self.emit_opcode(OpCode::Return);
                     self.chunk.replace_placeholder();
                     self.locals.pop();
                     self.local_count = self.locals.last().unwrap().len();
@@ -292,8 +294,7 @@ impl Compiler {
         let start_locals = self.scopes.pop().expect("No scope exists.");
         for _ in 0..(end_locals - start_locals) {
             self.locals.last_mut().expect("Locals is empty.").pop();
-            self.chunk
-                .emit_code(OpCode::PopStack as u8, self.tokens[self.p].line);
+            self.emit_opcode(OpCode::PopStack);
         }
     }
 
@@ -327,41 +328,32 @@ impl Compiler {
                 self.consume_token(TokenKind::Colon)?;
 
                 // Get the local
-                // TODO: Dont need to check. It should always be the last variable
-                self.chunk.emit_code(OpCode::GetLocal as u8, 0);
-                let mut found = false;
-                for local in self.locals.last().unwrap() {
-                    if &local.name == iter_name {
-                        self.chunk.emit_code(local.stack_pos as u8, 0);
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    // should also be removed
-                    return Err(CompilerError::MissingLocal {
-                        name: iter_name.to_string(),
-                        line: 0,
-                    });
-                }
+                self.emit_opcode(OpCode::GetLocal);
+                let iterator_stack_pos = self
+                    .locals
+                    .last()
+                    .expect("Should always be the last added local-stack")
+                    .last()
+                    .expect("Should always be the last added local")
+                    .stack_pos as u8;
+                self.emit_u8(iterator_stack_pos);
 
                 // push the max to stack
                 let consumed_token = self.consume_token(TokenKind::Number)?;
 
                 let loop_end = &consumed_token.value.parse::<i64>().unwrap();
+                // TODO: emit number self()?
                 self.chunk.emit_number(&consumed_token);
                 if loop_start <= loop_end {
-                    self.chunk
-                        .emit_code(OpCode::Less as u8, consumed_token.line);
+                    self.emit_opcode(OpCode::Less);
                 } else {
-                    self.chunk
-                        .emit_code(OpCode::Greater as u8, consumed_token.line);
+                    self.emit_opcode(OpCode::Greater);
                 }
 
                 // Setup jump
-                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.emit_opcode(OpCode::SetJump);
                 self.chunk.emit_placeholder(0);
-                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
+                self.emit_opcode(OpCode::JumpIfFalse);
 
                 let mut step = 0;
                 let mut negative_increment = false;
@@ -381,26 +373,9 @@ impl Compiler {
                 self.declaration()?;
                 self.end_scope();
 
-                // add increment to local
-                // Get the local
-                // TODO: loop lookup should also be removed? no need to check cause we know it
-                // exists. Maybe lookup should be a seperate function aswell
-                self.chunk.emit_code(OpCode::GetLocal as u8, 0);
-                let mut found = false;
-                for local in self.locals.last().unwrap() {
-                    if &local.name == iter_name {
-                        self.chunk.emit_code(local.stack_pos as u8, 0);
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    // this should be removed aswell
-                    return Err(CompilerError::MissingLocal {
-                        name: iter_name.to_string(),
-                        line: 0,
-                    });
-                }
+                self.emit_opcode(OpCode::GetLocal);
+                self.emit_u8(iterator_stack_pos);
+
                 // Push the increment to the stack
                 if step == 0 {
                     if loop_start <= loop_end {
@@ -415,69 +390,62 @@ impl Compiler {
                     kind: TokenKind::Number,
                     line: 0,
                 };
+                // todo: self.emit_number?
                 self.chunk.emit_number(&dummy_token);
-                self.chunk.emit_code(OpCode::Add as u8, 0);
-                // set the local
-                for local in self.locals.last().unwrap() {
-                    if &local.name == iter_name {
-                        self.chunk.emit_code(OpCode::SetLocal as u8, 0);
-                        self.chunk.emit_code(local.stack_pos as u8, 0);
-                        break;
-                    }
-                }
-
-                self.chunk.emit_code(OpCode::SetJump as u8, 0);
-                self.chunk
-                    .emit_code((self.chunk.code.len() - jump_point + 2) as u8, 0);
-                self.chunk.emit_code(OpCode::JumpBack as u8, 0);
+                self.emit_opcode(OpCode::Add);
+                self.emit_opcode(OpCode::SetLocal);
+                self.emit_u8(iterator_stack_pos);
+                self.emit_opcode(OpCode::SetJump);
+                self.emit_u8((self.chunk.code.len() - jump_point + 2) as u8);
+                self.emit_opcode(OpCode::JumpBack);
                 self.chunk.replace_placeholder();
             }
             TokenKind::While => {
                 let jump_point = self.chunk.code.len();
                 self.p += 1;
                 self.expression()?;
-                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.emit_opcode(OpCode::SetJump);
                 self.chunk.emit_placeholder(0);
-                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
+                self.emit_opcode(OpCode::JumpIfFalse);
                 self.start_scope()?;
                 self.declaration()?;
                 self.end_scope();
-                self.chunk.emit_code(OpCode::SetJump as u8, 0);
-                self.chunk
-                    .emit_code((self.chunk.code.len() - jump_point + 2) as u8, 0);
-                self.chunk.emit_code(OpCode::JumpBack as u8, 0);
+                self.emit_opcode(OpCode::SetJump);
+                self.emit_u8((self.chunk.code.len() - jump_point + 2) as u8);
+                self.emit_opcode(OpCode::JumpBack);
                 self.chunk.replace_placeholder();
             }
             TokenKind::If => {
                 self.p += 1;
                 self.expression()?;
-                self.chunk.emit_code(OpCode::SetJump as u8, 0);
+                self.emit_opcode(OpCode::SetJump);
                 self.chunk.emit_placeholder(0);
-                self.chunk.emit_code(OpCode::JumpIfFalse as u8, 0);
+                self.emit_opcode(OpCode::JumpIfFalse);
                 self.start_scope()?;
                 self.declaration()?;
                 self.end_scope();
                 self.chunk.replace_placeholder();
             }
             TokenKind::Print => {
-                let print_token_line = curr_token.line;
                 self.p += 1;
                 self.expression()?;
-                self.chunk.emit_code(OpCode::Print as u8, print_token_line);
+                self.emit_opcode(OpCode::Print);
                 self.consume_token(TokenKind::Semicolon)?;
             }
+            // TODO I Guess
             TokenKind::Return => {}
             // dont know if I should allow arbitrary blocks
             //TokenKind::LeftBrace => {}
             TokenKind::Identifier => {
                 let identifier_name = curr_token.value.to_string();
-                let line = curr_token.line;
                 self.p += 1;
-                match &self.tokens[self.p].kind {
+                match &self.current_kind() {
                     // Reassignment
                     TokenKind::Equal => {
                         self.p += 1;
                         let kind = self.expression()?;
+
+                        self.emit_opcode(OpCode::SetLocal);
                         for local in self.locals.last().unwrap() {
                             if local.name == identifier_name {
                                 if local.kind != kind {
@@ -487,8 +455,7 @@ impl Compiler {
                                         line: self.tokens[self.p].line,
                                     });
                                 }
-                                self.chunk.emit_code(OpCode::SetLocal as u8, line);
-                                self.chunk.emit_code(local.stack_pos as u8, line);
+                                self.emit_u8(local.stack_pos as u8);
                                 break;
                             }
                         }
@@ -498,35 +465,34 @@ impl Compiler {
                         self.consume_token(TokenKind::LeftParen)?;
                         let function = self.functions[&identifier_name].clone();
                         for param in function.params.clone() {
-                            let kind = self.expression().unwrap();
+                            let kind = self.expression()?;
                             if kind != param.kind {
                                 return Err(CompilerError::ParamType {
                                     expected: param.kind,
                                     actual: kind,
-                                    // TODO: self.current_line() to get the current line
-                                    line: self.tokens[self.p].line,
+                                    line: self.current_line(),
                                 });
                             }
                             self.local_count += 1;
                             self.consume_if_match(TokenKind::Comma);
                         }
-                        self.chunk.emit_code(OpCode::SetOffset as u8, 0);
-                        self.chunk.emit_code(function.params.len() as u8, 0);
-                        self.chunk.emit_code(OpCode::FunctionCall as u8, line);
-                        self.chunk.emit_code(function.index, line);
+
+                        self.emit_opcode(OpCode::SetOffset);
+                        self.emit_u8(function.params.len() as u8);
+                        self.emit_opcode(OpCode::FunctionCall);
+                        self.emit_u8(function.index);
+
                         self.consume_token(TokenKind::RightParen)?;
                         for _ in 0..function.params.len() {
-                            self.chunk.emit_code(OpCode::PopStack as u8, line);
+                            self.emit_opcode(OpCode::PopStack);
                         }
-                        self.chunk.emit_code(OpCode::PopOffset as u8, 0);
+                        self.emit_opcode(OpCode::PopOffset);
                     }
                     _ => {
                         // Is this even possible? maybe just panic
-                        return Err(CompilerError::UnexpectedToken {
-                            // TODO: self.get_curr_token()?
-                            actual: self.tokens[self.p].kind,
-                            expected: TokenKind::Nil,
-                            line: self.tokens[self.p].line,
+                        return Err(CompilerError::InvalidToken {
+                            actual: self.current_kind(),
+                            line: self.current_line(),
                         });
                     }
                 }
@@ -543,46 +509,47 @@ impl Compiler {
         let mut current: Option<ExpressionKind> = None;
         let mut operator: Option<Operator> = None;
         loop {
-            let curr_token = &self.tokens[self.p];
-            match curr_token.kind {
+            match self.current_kind() {
                 TokenKind::True => {
-                    self.chunk.emit_code(OpCode::True as u8, curr_token.line);
+                    self.emit_opcode(OpCode::True);
                     previous = current;
                     current = Some(ExpressionKind::Bool);
                 }
                 TokenKind::False => {
-                    self.chunk.emit_code(OpCode::False as u8, curr_token.line);
+                    self.emit_opcode(OpCode::False);
                     previous = current;
                     current = Some(ExpressionKind::Bool);
                 }
                 TokenKind::Number => {
-                    self.chunk.emit_number(curr_token);
+                    // todo: replace this method aswell?
+                    self.chunk.emit_number(&self.tokens[self.p]);
                     previous = current;
                     current = Some(ExpressionKind::Int);
                 }
                 TokenKind::String => {
-                    self.chunk.emit_string(curr_token);
+                    self.chunk.emit_string(&self.tokens[self.p]);
                     previous = current;
                     current = Some(ExpressionKind::String);
                 }
                 TokenKind::Identifier => {
-                    self.chunk
-                        .emit_code(OpCode::GetLocal as u8, curr_token.line);
+                    self.emit_opcode(OpCode::GetLocal);
                     let mut found = false;
                     // TODO: Function
                     for local in self.locals.last().unwrap() {
-                        if local.name == curr_token.value {
-                            self.chunk.emit_code(local.stack_pos as u8, curr_token.line);
+                        if local.name == self.tokens[self.p].value {
+                            // TODO
                             previous = current;
                             current = Some(local.kind);
                             found = true;
+                            self.emit_u8(local.stack_pos as u8);
                             break;
                         }
                     }
                     if !found {
                         return Err(CompilerError::MissingLocal {
-                            name: curr_token.value.to_string(),
-                            line: curr_token.line,
+                            // Todo: self.current_value() ?
+                            name: self.tokens[self.p].value.to_string(),
+                            line: self.current_line(),
                         });
                     }
                 }
@@ -663,115 +630,44 @@ impl Compiler {
                     break;
                 }
                 _ => {
-                    return Err(CompilerError::UnexpectedToken {
-                        expected: TokenKind::Nil,
-                        actual: curr_token.kind,
-                        line: curr_token.line,
+                    return Err(CompilerError::InvalidToken {
+                        actual: self.current_kind(),
+                        line: self.current_line(),
                     })
                 }
             }
 
             // adding operators after
             match operator {
-                Some(Operator::Modulo) => {
-                    if &previous != &Some(ExpressionKind::Int)
-                        || &current != &Some(ExpressionKind::Int)
-                    {
-                        // TODO: Is it possible for these to be none? unwrap and check earlier?
-                        return Err(CompilerError::NumberOperator {
-                            operator: Operator::Modulo,
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                        });
-                    }
-                    self.chunk.emit_code(OpCode::Modulo as u8, curr_token.line);
-                    current = Some(ExpressionKind::Int);
-                }
-                Some(Operator::Greater) => {
-                    if &previous != &Some(ExpressionKind::Int)
-                        || &current != &Some(ExpressionKind::Int)
-                    {
-                        return Err(CompilerError::NumberOperator {
-                            operator: Operator::Greater,
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                        });
-                    }
-                    self.chunk.emit_code(OpCode::Greater as u8, curr_token.line);
-                    current = Some(ExpressionKind::Bool);
-                }
-                // TODO: Make this 1 big patter (gt | g | modul... etc) and then use
-                // operator.get_opcode to get the code to emit?
-                Some(Operator::GreaterEqual) => {
-                    if &previous != &Some(ExpressionKind::Int)
-                        || &current != &Some(ExpressionKind::Int)
-                    {
-                        return Err(CompilerError::NumberOperator {
-                            operator: Operator::GreaterEqual,
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                        });
-                    }
-                    self.chunk
-                        .emit_code(OpCode::GreaterEqual as u8, curr_token.line);
-                    current = Some(ExpressionKind::Bool);
-                }
-                Some(Operator::Less) => {
-                    if &previous != &Some(ExpressionKind::Int)
-                        || &current != &Some(ExpressionKind::Int)
-                    {
-                        return Err(CompilerError::NumberOperator {
-                            operator: Operator::Less,
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                        });
-                    }
-                    self.chunk.emit_code(OpCode::Less as u8, curr_token.line);
-                    current = Some(ExpressionKind::Bool);
-                }
-                Some(Operator::LessEqual) => {
-                    if &previous != &Some(ExpressionKind::Int)
-                        || &current != &Some(ExpressionKind::Int)
-                    {
-                        return Err(CompilerError::NumberOperator {
-                            operator: Operator::LessEqual,
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                        });
-                    }
-                    self.chunk
-                        .emit_code(OpCode::LessEqual as u8, curr_token.line);
-                    current = Some(ExpressionKind::Bool);
+                Some(Operator::Modulo)
+                | Some(Operator::Greater)
+                | Some(Operator::GreaterEqual)
+                | Some(Operator::Less)
+                | Some(Operator::LessEqual)
+                | Some(Operator::Subtract)
+                | Some(Operator::Multiply)
+                | Some(Operator::Divide) => {
+                    self.handle_int_int_operator(operator, previous, current)?;
                 }
                 Some(Operator::BangEqual) => {
                     if &previous != &current {
-                        // TODO: remove unwraps
                         return Err(CompilerError::ComparisonType {
                             first: previous.unwrap(),
                             second: current.unwrap(),
-                            line: self.tokens[self.p].line,
+                            line: self.current_line(),
                         });
                     }
                     match &current {
-                        Some(ExpressionKind::String) => {
-                            self.chunk
-                                .emit_code(OpCode::CompareStringNot as u8, curr_token.line);
-                        }
-                        Some(ExpressionKind::Bool) => {
-                            self.chunk
-                                .emit_code(OpCode::CompareBoolNot as u8, curr_token.line);
-                        }
-                        Some(ExpressionKind::Int) => {
-                            self.chunk
-                                .emit_code(OpCode::CompareIntNot as u8, curr_token.line);
-                        }
+                        Some(ExpressionKind::String) => self.emit_opcode(OpCode::CompareStringNot),
+                        Some(ExpressionKind::Bool) => self.emit_opcode(OpCode::CompareBoolNot),
+                        Some(ExpressionKind::Int) => self.emit_opcode(OpCode::CompareIntNot),
                         None => unreachable!("Cant compare none"),
                     }
                     current = Some(ExpressionKind::Bool);
                 }
+
                 Some(Operator::EqualEqual) => {
                     if &previous != &current {
-                        // TODO: remove unwraps
                         return Err(CompilerError::ComparisonType {
                             first: previous.unwrap(),
                             second: current.unwrap(),
@@ -779,113 +675,29 @@ impl Compiler {
                         });
                     }
                     match &current {
-                        Some(ExpressionKind::String) => {
-                            self.chunk
-                                .emit_code(OpCode::CompareString as u8, curr_token.line);
-                        }
-                        Some(ExpressionKind::Bool) => {
-                            self.chunk
-                                .emit_code(OpCode::CompareBool as u8, curr_token.line);
-                        }
-                        Some(ExpressionKind::Int) => {
-                            self.chunk
-                                .emit_code(OpCode::CompareInt as u8, curr_token.line);
-                        }
+                        Some(ExpressionKind::String) => self.emit_opcode(OpCode::CompareString),
+                        Some(ExpressionKind::Bool) => self.emit_opcode(OpCode::CompareBool),
+                        Some(ExpressionKind::Int) => self.emit_opcode(OpCode::CompareInt),
                         None => unreachable!("Cant compare none"),
                     }
                     current = Some(ExpressionKind::Bool);
                 }
-                Some(Operator::Add) => match (&previous, &current) {
-                    (Some(ExpressionKind::String), Some(ExpressionKind::String)) => {
-                        self.chunk
-                            .emit_code(OpCode::StringStringConcat as u8, curr_token.line);
-                        current = Some(ExpressionKind::String);
-                    }
-                    (Some(ExpressionKind::String), Some(ExpressionKind::Int)) => {
-                        self.chunk
-                            .emit_code(OpCode::StringIntConcat as u8, curr_token.line);
-                        current = Some(ExpressionKind::String);
-                    }
-                    (Some(ExpressionKind::Int), Some(ExpressionKind::String)) => {
-                        self.chunk
-                            .emit_code(OpCode::IntStringConcat as u8, curr_token.line);
-                        current = Some(ExpressionKind::String);
-                    }
-                    (Some(ExpressionKind::String), Some(ExpressionKind::Bool)) => {
-                        self.chunk
-                            .emit_code(OpCode::StringBoolConcat as u8, curr_token.line);
-                        current = Some(ExpressionKind::String);
-                    }
-                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => {
-                        self.chunk.emit_code(OpCode::Add as u8, curr_token.line)
-                    }
-                    (Some(ExpressionKind::Bool), Some(ExpressionKind::String)) => {
-                        self.chunk
-                            .emit_code(OpCode::BoolStringConcat as u8, curr_token.line);
-                        current = Some(ExpressionKind::String);
-                    }
-                    _ => {
-                        // TODO: remove unwraps and fix line
-                        return Err(CompilerError::InvalidOperatorTypes {
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                            line: self.tokens[self.p].line,
-                        });
-                    }
-                },
-                Some(Operator::Subtract) => match (&previous, &current) {
-                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => self
-                        .chunk
-                        .emit_code(OpCode::Subtract as u8, curr_token.line),
 
-                    _ => {
-                        // TODO: remove unwraps and fix line
-                        return Err(CompilerError::InvalidOperatorTypes {
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                            line: self.tokens[self.p].line,
-                        });
-                    }
-                },
-                Some(Operator::Multiply) => match (&previous, &current) {
-                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => self
-                        .chunk
-                        .emit_code(OpCode::Multiply as u8, curr_token.line),
-
-                    _ => {
-                        // TODO: remove unwraps and fix line
-                        return Err(CompilerError::InvalidOperatorTypes {
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                            line: self.tokens[self.p].line,
-                        });
-                    }
-                },
-                Some(Operator::Divide) => match (&previous, &current) {
-                    (Some(ExpressionKind::Int), Some(ExpressionKind::Int)) => {
-                        self.chunk.emit_code(OpCode::Divide as u8, curr_token.line)
-                    }
-                    _ => {
-                        // TODO: remove unwraps and fix line
-                        return Err(CompilerError::InvalidOperatorTypes {
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                            line: self.tokens[self.p].line,
-                        });
-                    }
-                },
+                Some(Operator::Add) => {
+                    current = Some(self.handle_add_operator(previous.unwrap(), current.unwrap())?);
+                }
                 Some(Operator::And) => match (&previous, &current) {
                     (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
-                        self.chunk.emit_code(OpCode::And as u8, curr_token.line);
+                        self.emit_opcode(OpCode::And);
                     }
                     // TODO: Maybe change all these to a generic one? 'ExpressionType' error?
-                    _ => return Err(CompilerError::BooleanExpression(curr_token.line)),
+                    _ => return Err(CompilerError::BooleanExpression(self.current_line())),
                 },
                 Some(Operator::Or) => match (&previous, &current) {
                     (Some(ExpressionKind::Bool), Some(ExpressionKind::Bool)) => {
-                        self.chunk.emit_code(OpCode::Or as u8, curr_token.line);
+                        self.emit_opcode(OpCode::Or);
                     }
-                    _ => return Err(CompilerError::BooleanExpression(curr_token.line)),
+                    _ => return Err(CompilerError::BooleanExpression(self.current_line())),
                 },
                 None => {}
             }
@@ -893,6 +705,80 @@ impl Compiler {
             self.p += 1;
         }
         Ok(current.unwrap())
+    }
+    fn emit_opcode(&mut self, opcode: OpCode) {
+        self.chunk.emit_code(opcode as u8, self.current_line());
+    }
+    fn emit_u8(&mut self, b: u8) {
+        self.chunk.emit_code(b, self.current_line());
+    }
+
+    fn handle_int_int_operator(
+        &mut self,
+        operator: Option<Operator>,
+        previous: Option<ExpressionKind>,
+        current: Option<ExpressionKind>,
+    ) -> Result<()> {
+        if &previous != &Some(ExpressionKind::Int) || &current != &Some(ExpressionKind::Int) {
+            return Err(CompilerError::NumberOperator {
+                operator: Operator::Modulo,
+                first: previous.unwrap(),
+                second: current.unwrap(),
+            });
+        }
+        let opcode = operator_to_opcode(operator.unwrap());
+        self.emit_opcode(opcode);
+        Ok(())
+    }
+
+    fn handle_add_operator(
+        &mut self,
+        exp1: ExpressionKind,
+        exp2: ExpressionKind,
+    ) -> Result<ExpressionKind> {
+        let opcode = match (exp1, exp2) {
+            (ExpressionKind::String, ExpressionKind::String) => OpCode::StringStringConcat,
+            (ExpressionKind::String, ExpressionKind::Int) => OpCode::StringIntConcat,
+            (ExpressionKind::Int, ExpressionKind::String) => OpCode::IntStringConcat,
+            (ExpressionKind::String, ExpressionKind::Bool) => OpCode::StringBoolConcat,
+            (ExpressionKind::Int, ExpressionKind::Int) => OpCode::Add,
+            (ExpressionKind::Bool, ExpressionKind::String) => OpCode::BoolStringConcat,
+            _ => {
+                return Err(CompilerError::InvalidOperatorTypes {
+                    first: exp1,
+                    second: exp2,
+                    line: self.current_line(),
+                });
+            }
+        };
+        self.emit_opcode(opcode);
+        if exp1 == ExpressionKind::Int && exp2 == ExpressionKind::Int {
+            return Ok(ExpressionKind::Int);
+        }
+        return Ok(ExpressionKind::String);
+    }
+
+    fn current_line(&self) -> usize {
+        return self.tokens[self.p].line;
+    }
+    fn current_kind(&self) -> TokenKind {
+        return self.tokens[self.p].kind;
+    }
+}
+
+fn operator_to_opcode(operator: Operator) -> OpCode {
+    match operator {
+        // TODO: What to do with add?
+        //Add => OpCode::Add,
+        Operator::Subtract => OpCode::Subtract,
+        Operator::Divide => OpCode::Divide,
+        Operator::Multiply => OpCode::Multiply,
+        Operator::Modulo => OpCode::Modulo,
+        Operator::Greater => OpCode::Greater,
+        Operator::GreaterEqual => OpCode::GreaterEqual,
+        Operator::Less => OpCode::Less,
+        Operator::LessEqual => OpCode::LessEqual,
+        _ => panic!("Should not be possible"),
     }
 }
 
