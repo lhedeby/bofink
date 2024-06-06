@@ -42,5 +42,6 @@ pub enum OpCode {
     Modulo,
     And,
     Or,
+    ReturnValue,
 }
 

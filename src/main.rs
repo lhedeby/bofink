@@ -356,19 +356,24 @@ mod tests {
         test_output(source, expected)
     }
 
-    // TODO: Issue: need "" to cast in when printing. Error?
     #[test]
     fn recursion() {
         let source = r#"
-            fun test(i: int) {
-                print "" + i;
-                if i > 0 {
-                    test(i - 1);
+            fun fib(i: int) int {
+                if i == 0 {
+                    return 1;
                 }
+                if i == 1 {
+                    return 1;
+                }
+                int r1 = fib(i - 1);
+                int r2 = fib(i - 2);
+                return r1 + r2; 
             }
-            test(5);
+            int res = fib(10);
+            print "res: " + res;
         "#;
-        let expected = "5\n4\n3\n2\n1\n0\n";
+        let expected = "res: 89\n";
         test_output(source, expected);
     }
 }

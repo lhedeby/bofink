@@ -141,7 +141,13 @@ impl Compiler {
                         index: fun_count as u8,
                         params: vec![],
                     };
+                    let mut arity: u8 = 0;
                     while self.current_kind() != TokenKind::RightParen {
+                        arity += 1;
+                        if arity >= u8::MAX {
+                            // TODO ERROR
+                            panic!("too many params");
+                        }
                         let consumed_token = self.consume_token(TokenKind::Identifier)?;
                         let param_name = &consumed_token.value.to_string();
                         self.consume_token(TokenKind::Colon)?;
@@ -159,12 +165,42 @@ impl Compiler {
 
                     self.functions.insert(identifier.to_string(), function);
                     self.consume_token(TokenKind::RightParen)?;
+                    let return_type = match self.current_kind() {
+                        TokenKind::LeftBrace => None,
+                        TokenKind::Int => {
+                            self.p += 1;
+                            Some(ExpressionKind::Int)
+                        }
+                        TokenKind::Str => {
+                            self.p += 1;
+                            Some(ExpressionKind::String)
+                        }
+                        TokenKind::Bool => {
+                            self.p += 1;
+                            Some(ExpressionKind::Bool)
+                        }
+                        _ => panic!("TODO!"),
+                    };
                     self.consume_token(TokenKind::LeftBrace)?;
                     self.declaration()?;
+                    // if let Some(_) = return_type {
+                    //     self.emit_opcode(OpCode::ReturnValue);
+                    // } else {
+                    // }
+
                     self.emit_opcode(OpCode::Return);
+                    self.emit_u8(self.local_count as u8);
                     self.chunk.replace_placeholder();
                     self.locals.pop();
                     self.local_count = self.locals.last().unwrap().len();
+                }
+                // declaration
+                TokenKind::Return => {
+                    self.p += 1;
+                    self.expression()?;
+                    self.emit_opcode(OpCode::ReturnValue);
+                    self.emit_u8(self.local_count as u8);
+                    self.consume_token(TokenKind::Semicolon)?;
                 }
 
                 TokenKind::Eof => return Ok(()),
@@ -326,9 +362,13 @@ impl Compiler {
                 self.consume_token(TokenKind::Semicolon)?;
             }
             // TODO I Guess
-            TokenKind::Return => {}
+            // Statement - should this even be here?
+            TokenKind::Return => {
+                println!("do i get here?");
+            }
             // dont know if I should allow arbitrary blocks
             //TokenKind::LeftBrace => {}
+            // statement
             TokenKind::Identifier => {
                 let identifier_name = curr_token.value.to_string();
                 self.p += 1;
@@ -337,7 +377,6 @@ impl Compiler {
                     TokenKind::Equal => {
                         self.p += 1;
                         let kind = self.expression()?;
-
                         self.emit_opcode(OpCode::SetLocal);
                         for local in self.locals.last().unwrap() {
                             if local.name == identifier_name {
@@ -354,33 +393,7 @@ impl Compiler {
                         }
                     }
                     // function call
-                    TokenKind::LeftParen => {
-                        self.consume_token(TokenKind::LeftParen)?;
-                        let function = self.functions[&identifier_name].clone();
-                        for param in function.params.clone() {
-                            let kind = self.expression()?;
-                            if kind != param.kind {
-                                return Err(CompilerError::ParamType {
-                                    expected: param.kind,
-                                    actual: kind,
-                                    line: self.current_line(),
-                                });
-                            }
-                            self.local_count += 1;
-                            self.consume_if_match(TokenKind::Comma);
-                        }
-
-                        self.emit_opcode(OpCode::SetOffset);
-                        self.emit_u8(function.params.len() as u8);
-                        self.emit_opcode(OpCode::FunctionCall);
-                        self.emit_u8(function.index);
-
-                        self.consume_token(TokenKind::RightParen)?;
-                        for _ in 0..function.params.len() {
-                            self.emit_opcode(OpCode::PopStack);
-                        }
-                        self.emit_opcode(OpCode::PopOffset);
-                    }
+                    TokenKind::LeftParen => self.function_call(identifier_name)?,
                     _ => {
                         // Is this even possible? maybe just panic
                         return Err(CompilerError::InvalidToken {
@@ -424,26 +437,38 @@ impl Compiler {
                     previous = current;
                     current = Some(ExpressionKind::String);
                 }
+                // expression
                 TokenKind::Identifier => {
-                    self.emit_opcode(OpCode::GetLocal);
-                    let mut found = false;
-                    // TODO: Function
-                    for local in self.locals.last().unwrap() {
-                        if local.name == self.tokens[self.p].value {
-                            // TODO
-                            previous = current;
-                            current = Some(local.kind);
-                            found = true;
-                            self.emit_u8(local.stack_pos as u8);
-                            break;
+                    let identifier_name = self.tokens[self.p].value.to_string();
+                    if self.tokens[self.p + 1].kind == TokenKind::LeftParen {
+                        self.p += 1;
+                        self.function_call(identifier_name)?;
+                        // need to set the current type
+                        // TODO
+                        current = Some(ExpressionKind::Int);
+                        // to stop p increment?
+                        continue;
+                    } else {
+                        self.emit_opcode(OpCode::GetLocal);
+                        let mut found = false;
+                        // TODO: Function
+                        for local in self.locals.last().unwrap() {
+                            if local.name == self.tokens[self.p].value {
+                                // TODO
+                                previous = current;
+                                current = Some(local.kind);
+                                found = true;
+                                self.emit_u8(local.stack_pos as u8);
+                                break;
+                            }
                         }
-                    }
-                    if !found {
-                        return Err(CompilerError::MissingLocal {
-                            // Todo: self.current_value() ?
-                            name: self.tokens[self.p].value.to_string(),
-                            line: self.current_line(),
-                        });
+                        if !found {
+                            return Err(CompilerError::MissingLocal {
+                                // Todo: self.current_value() ?
+                                name: self.tokens[self.p].value.to_string(),
+                                line: self.current_line(),
+                            });
+                        }
                     }
                 }
                 TokenKind::Percent => {
@@ -526,7 +551,7 @@ impl Compiler {
                     return Err(CompilerError::InvalidToken {
                         actual: self.current_kind(),
                         line: self.current_line(),
-                    })
+                    });
                 }
             }
 
@@ -598,6 +623,39 @@ impl Compiler {
         }
         Ok(current.unwrap())
     }
+
+    // TODO  handle the case where the function has a return type
+    fn function_call(&mut self, identifier_name: String) -> Result<()> {
+        self.consume_token(TokenKind::LeftParen)?;
+        let function = self.functions[&identifier_name].clone();
+        for param in function.params.clone() {
+            let kind = self.expression()?;
+            if kind != param.kind {
+                return Err(CompilerError::ParamType {
+                    expected: param.kind,
+                    actual: kind,
+                    line: self.current_line(),
+                });
+            }
+            self.local_count += 1;
+            self.consume_if_match(TokenKind::Comma);
+        }
+
+        self.emit_opcode(OpCode::SetOffset);
+        self.emit_u8(function.params.len() as u8);
+        self.emit_opcode(OpCode::FunctionCall);
+        self.emit_u8(function.index);
+
+        self.consume_token(TokenKind::RightParen)?;
+        for _ in 0..function.params.len() {
+            self.local_count -= 1;
+            // self.emit_opcode(OpCode::PopStack);
+        }
+        self.emit_opcode(OpCode::PopOffset);
+
+        Ok(())
+    }
+
     fn emit_opcode(&mut self, opcode: OpCode) {
         self.chunk.emit_code(opcode as u8, self.current_line());
     }

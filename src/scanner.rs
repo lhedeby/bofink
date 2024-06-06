@@ -127,6 +127,7 @@ impl Scanner {
         ]
     }
 
+    // need to check for exact word
     fn identifier_kind(&self) -> TokenKind {
         for (s, kind) in self.identifier_list() {
             if self.start + s.len() < self.source.len()

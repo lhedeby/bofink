@@ -246,12 +246,28 @@ pub fn interpret(mut chunk: Chunk, out: &mut impl Write) {
                 offsets.push(stack_offset);
             }
             OpCode::PopOffset => {
+
                 offsets.pop();
                 stack_offset = offsets.last().unwrap().clone();
             }
             OpCode::Return => {
                 let return_position = call_stack.pop().unwrap();
+                for _ in 0..chunk.code[ip + 1] {
+                    stack.pop();
+                }
                 ip = return_position;
+                continue;
+            }
+            OpCode::ReturnValue => {
+                let return_position = call_stack.pop().unwrap();
+
+                let return_value = stack.pop().unwrap();
+                for _ in 0..chunk.code[ip + 1] {
+                    stack.pop();
+                }
+                ip = return_position;
+                stack.push(return_value);
+
                 continue;
             }
             _ => panic!(
