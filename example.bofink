@@ -1,13 +1,8 @@
 fun fib(i: int) int {
-	if i == 0 {
-		return 1;
-	}
-	if i == 1 {
-		return 1;
-	}
-	int r1 = fib(i - 1);
-	int r2 = fib(i - 2);
-	return r1 + r2; 
+	return 5; 
+}
+fun test() {
+	print "hello";
 }
 
 int res = fib(10);
