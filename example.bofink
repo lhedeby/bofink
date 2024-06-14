@@ -1,9 +1,4 @@
-fun fib(i: int) int {
-	return 5; 
-}
-fun test() {
-	print "hello";
-}
+int a = 5;
+int b = 2 + a;
 
-int res = fib(10);
-print "res: " + res;
+print "b: " + b;

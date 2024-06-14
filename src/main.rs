@@ -1,10 +1,10 @@
 use std::{env, fs, io::stdout};
 
 mod compiler;
+mod enums;
 mod opcode;
 mod scanner;
 mod vm;
-mod enums;
 
 fn main() {
     println!("Bofink compiler started...");
@@ -289,6 +289,26 @@ mod tests {
     }
 
     #[test]
+    fn compare_strings() {
+        let source = r#"
+        if "1" == "1" {
+            print "1";
+        }
+        if "1" == "2" {
+            print "error";
+        }
+        if "1" != "2" {
+            print "2";
+        }
+        if "2" != "2" {
+            print "error";
+        }
+        "#;
+        let expected = "1\n2\n";
+        test_output(source, expected);
+    }
+
+    #[test]
     fn comparing() {
         let source = r#"
             int i = 5;
@@ -374,6 +394,27 @@ mod tests {
             print "res: " + res;
         "#;
         let expected = "res: 89\n";
+        test_output(source, expected);
+    }
+    #[test]
+    fn fizzbuzz() {
+        let source = r#"
+            for i in 1:20 {
+                if i % 3 == 0 and i % 5 == 0 {
+                    print "fizzbuzz";
+                }
+                if i % 3 == 0 and i % 5 != 0 {
+                    print "fizz";
+                }
+                if i % 3 != 0 and i % 5 == 0 {
+                    print "buzz";
+                }
+                if i % 3 != 0 and i % 5 != 0 {
+                    print "" + i;
+                }
+            }
+        "#;
+        let expected = "1\n2\nfizz\n4\nbuzz\nfizz\n7\n8\nfizz\nbuzz\n11\nfizz\n13\n14\nfizzbuzz\n16\n17\nfizz\n19\n";
         test_output(source, expected);
     }
 }

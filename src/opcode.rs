@@ -3,12 +3,12 @@
 pub enum OpCode {
     _Constant,
     Return,
-    _Negate,
+    Negate,
     Add,
     Subtract,
     Multiply,
     Divide,
-    _Nil,
+    Nil,
     True,
     False,
     Print,
@@ -43,5 +43,6 @@ pub enum OpCode {
     And,
     Or,
     ReturnValue,
+    Not,
 }
 

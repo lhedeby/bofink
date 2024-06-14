@@ -40,6 +40,9 @@ pub enum CompilerError {
         first: ExpressionKind,
         second: ExpressionKind,
     },
+    NumberOperation {
+        operator: TokenKind,
+    },
     ComparisonType {
         first: ExpressionKind,
         second: ExpressionKind,
@@ -56,6 +59,7 @@ pub enum CompilerError {
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            CompilerError::NumberOperation { operator } => write!(f, "Operator '{:?}' expects 2 numbers", operator),
             CompilerError::InvalidToken { actual, line } => write!(f, "Unexpected token '{:?}' | at line {}", actual, line),
             // TODO: Should Tokenkind impl display?
             CompilerError::UnexpectedToken {
@@ -119,8 +123,7 @@ pub enum Operator {
     LessEqual,
     Greater,
     GreaterEqual,
-    And,
-    Or,
+    Not,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
