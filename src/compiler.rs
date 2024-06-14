@@ -43,9 +43,32 @@ pub fn compile(source: String) -> Result<Chunk> {
 impl Compiler {
     fn rd_expression(&mut self) -> Result<ExpressionKind> {
         println!("USING RD_EXPRESSION");
-        return self.rd_equality();
+        return self.rd_or();
+    }
+    fn rd_or(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.rd_and()?;
+        while self.current_kind() == TokenKind::Or {
+            self.p += 1;
+            let right_kind = self.rd_and()?;
+            // todo: check that both are bools
+            self.emit_opcode(OpCode::Or);
+            return Ok(ExpressionKind::Bool);
+        }
+        Ok(left_kind)
+    }
+    fn rd_and(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.rd_equality()?;
+        while self.current_kind() == TokenKind::And {
+            self.p += 1;
+            let right_kind = self.rd_equality()?;
+            // todo: check that both are bools
+            self.emit_opcode(OpCode::And);
+            return Ok(ExpressionKind::Bool);
+        }
+        Ok(left_kind)
     }
     fn rd_equality(&mut self) -> Result<ExpressionKind> {
+        println!("!rd_equality!");
         let left_kind = self.rd_comparison()?;
         let mut return_type = left_kind;
         // let mut matched_eq = false;
@@ -83,6 +106,7 @@ impl Compiler {
         Ok(return_type)
     }
     fn rd_comparison(&mut self) -> Result<ExpressionKind> {
+        println!("!rd_comparison!");
         let left_kind = self.rd_term()?;
         let mut return_kind = left_kind;
         loop {
@@ -110,7 +134,7 @@ impl Compiler {
                 TokenKind::LessEqual => self.emit_opcode(OpCode::LessEqual),
                 _ => unreachable!(),
             }
-            self.emit_opcode(OpCode::Greater);
+            // self.emit_opcode(OpCode::Greater);
             return_kind = ExpressionKind::Bool;
         }
         Ok(return_kind)
@@ -128,19 +152,37 @@ impl Compiler {
             self.p += 1;
             let right_kind = self.rd_factor()?;
 
-            if right_kind != ExpressionKind::Int || left_kind != ExpressionKind::Int {
-                return Err(CompilerError::NumberOperation {
-                    operator: token_kind,
-                });
-            }
             // TODO: match left/right_kind and emit correct OpCode
             match token_kind {
-                TokenKind::Minus => self.emit_opcode(OpCode::Subtract),
-                TokenKind::Plus => self.emit_opcode(OpCode::Add),
+                TokenKind::Minus => {
+                    if right_kind != ExpressionKind::Int || left_kind != ExpressionKind::Int {
+                        return Err(CompilerError::NumberOperation {
+                            operator: token_kind,
+                        });
+                    }
+                    self.emit_opcode(OpCode::Subtract)
+                }
+                TokenKind::Plus => {
+                    match (left_kind, right_kind) {
+                        (ExpressionKind::Bool, ExpressionKind::String) => self.emit_opcode(OpCode::BoolStringConcat),
+                        (ExpressionKind::String, ExpressionKind::Bool) => self.emit_opcode(OpCode::StringBoolConcat),
+                        (ExpressionKind::Int, ExpressionKind::String) => self.emit_opcode(OpCode::IntStringConcat),
+                        (ExpressionKind::String, ExpressionKind::Int) => self.emit_opcode(OpCode::StringIntConcat),
+                        (ExpressionKind::String, ExpressionKind::String) => self.emit_opcode(OpCode::StringStringConcat),
+                        (ExpressionKind::Int, ExpressionKind::Int) => self.emit_opcode(OpCode::Add),
+                        _ => todo!("invalid types erro")
+                    }
+
+
+                },
                 _ => unreachable!(),
             }
             // todo: handle string aswell
-            return_kind = ExpressionKind::Int;
+            if left_kind == ExpressionKind::String || right_kind == ExpressionKind::String {
+                return_kind = ExpressionKind::String;
+            } else {
+                return_kind = ExpressionKind::Int;
+            }
         }
         Ok(return_kind)
     }
@@ -243,9 +285,17 @@ impl Compiler {
 
     fn get_local(&mut self) -> Result<ExpressionKind> {
         let res = match self.locals.last() {
-            Some(l_vec) => match l_vec.iter().find(|l| l.name == self.tokens[self.p-1].value) {
+            Some(l_vec) => match l_vec
+                .iter()
+                .find(|l| l.name == self.tokens[self.p - 1].value)
+            {
                 Some(l) => (l.stack_pos, l.kind),
-                None => return Err(CompilerError::MissingLocal { name: self.tokens[self.p-1].value.to_string(), line: self.current_line() })
+                None => {
+                    return Err(CompilerError::MissingLocal {
+                        name: self.tokens[self.p - 1].value.to_string(),
+                        line: self.current_line(),
+                    })
+                }
             },
             None => unreachable!("Locals Vec should never be empty"),
         };
@@ -407,7 +457,8 @@ impl Compiler {
                 // declaration
                 TokenKind::Return => {
                     self.p += 1;
-                    let return_type = self.expression()?;
+                    // let return_type = self.expression()?;
+                    let return_type = self.rd_expression()?;
                     self.emit_opcode(OpCode::ReturnValue);
                     self.emit_u8(self.local_count as u8);
                     self.consume_token(TokenKind::Semicolon)?;
@@ -542,7 +593,8 @@ impl Compiler {
             TokenKind::While => {
                 let jump_point = self.chunk.code.len();
                 self.p += 1;
-                self.expression()?;
+                // self.expression()?;
+                self.rd_expression()?;
                 self.emit_opcode(OpCode::SetJump);
                 self.chunk.emit_placeholder(0);
                 self.emit_opcode(OpCode::JumpIfFalse);
@@ -556,7 +608,8 @@ impl Compiler {
             }
             TokenKind::If => {
                 self.p += 1;
-                self.expression()?;
+                // self.expression()?;
+                self.rd_expression()?;
                 self.emit_opcode(OpCode::SetJump);
                 self.chunk.emit_placeholder(0);
                 self.emit_opcode(OpCode::JumpIfFalse);
@@ -567,7 +620,8 @@ impl Compiler {
             }
             TokenKind::Print => {
                 self.p += 1;
-                self.expression()?;
+                // self.expression()?;
+                self.rd_expression()?;
                 self.emit_opcode(OpCode::Print);
                 self.consume_token(TokenKind::Semicolon)?;
             }
@@ -586,7 +640,8 @@ impl Compiler {
                     // Reassignment
                     TokenKind::Equal => {
                         self.p += 1;
-                        let kind = self.expression()?;
+                        // let kind = self.expression()?;
+                        let kind = self.rd_expression()?;
                         self.emit_opcode(OpCode::SetLocal);
                         for local in self.locals.last().unwrap() {
                             if local.name == identifier_name {
@@ -618,7 +673,8 @@ impl Compiler {
                 self.consume_token(TokenKind::Semicolon)?;
             }
             _ => {
-                self.expression()?;
+                // self.expression()?;
+                self.rd_expression()?;
             }
         }
         Ok(())
@@ -875,7 +931,8 @@ impl Compiler {
         self.consume_token(TokenKind::LeftParen)?;
         let function = self.functions[&identifier_name].clone();
         for param in function.params.clone() {
-            let kind = self.expression()?;
+            // let kind = self.expression()?;
+            let kind = self.rd_expression()?;
             if kind != param.kind {
                 return Err(CompilerError::ParamType {
                     expected: param.kind,
