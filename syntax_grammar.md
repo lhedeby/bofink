@@ -30,6 +30,9 @@ print_stmt => "print" + expression + ";"
 return_stmt => "return" + expression? + ";"
 block => "{" + declaration[] + "}"
 
+int_expr => (-)? (number | identifier)
+str_expr => str | identifier 
+
 expression => identifier 
 
 examples

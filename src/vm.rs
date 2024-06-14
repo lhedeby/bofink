@@ -90,6 +90,14 @@ pub fn interpret(mut chunk: Chunk, out: &mut impl Write) {
                 let num2 = unsafe { stack.pop().unwrap().i };
                 stack.push(StackValue { i: num2 * num1 });
             }
+            OpCode::Negate => {
+                let num = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { i: -num });
+            }
+            OpCode::Not => {
+                let bool = unsafe { stack.pop().unwrap().b };
+                stack.push(StackValue { b: !bool });
+            }
             OpCode::StringStringConcat => {
                 let s1 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
                 let s2 = &chunk.strings[unsafe { stack.pop().unwrap().u } as usize];
@@ -170,20 +178,34 @@ pub fn interpret(mut chunk: Chunk, out: &mut impl Write) {
                 let v2 = unsafe { stack.pop().unwrap().b };
                 stack.push(StackValue { b: v1 || v2 })
             }
-            OpCode::CompareString | OpCode::CompareInt => {
+            OpCode::CompareInt => {
                 let v1 = unsafe { stack.pop().unwrap().i };
                 let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v1 == v2 })
+                stack.push( StackValue { b: v1 == v2 });
+            }
+            OpCode::CompareIntNot => {
+                let v1 = unsafe { stack.pop().unwrap().i };
+                let v2 = unsafe { stack.pop().unwrap().i };
+                stack.push(StackValue { b: v1 != v2 })
+            }
+            OpCode::CompareString => {
+                let v1 = unsafe { stack.pop().unwrap().u };
+                let v2 = unsafe { stack.pop().unwrap().u };
+                stack.push(StackValue {
+                    b: &chunk.strings[v1 as usize] == &chunk.strings[v2 as usize],
+                })
+            }
+            OpCode::CompareStringNot => {
+                let v1 = unsafe { stack.pop().unwrap().u };
+                let v2 = unsafe { stack.pop().unwrap().u };
+                stack.push(StackValue {
+                    b: &chunk.strings[v1 as usize] != &chunk.strings[v2 as usize],
+                })
             }
             OpCode::CompareBool => {
                 let v1 = unsafe { stack.pop().unwrap().b };
                 let v2 = unsafe { stack.pop().unwrap().b };
                 stack.push(StackValue { b: v1 == v2 })
-            }
-            OpCode::CompareStringNot | OpCode::CompareIntNot => {
-                let v1 = unsafe { stack.pop().unwrap().i };
-                let v2 = unsafe { stack.pop().unwrap().i };
-                stack.push(StackValue { b: v1 != v2 })
             }
             OpCode::CompareBoolNot => {
                 let v1 = unsafe { stack.pop().unwrap().b };
@@ -246,7 +268,6 @@ pub fn interpret(mut chunk: Chunk, out: &mut impl Write) {
                 offsets.push(stack_offset);
             }
             OpCode::PopOffset => {
-
                 offsets.pop();
                 stack_offset = offsets.last().unwrap().clone();
             }
