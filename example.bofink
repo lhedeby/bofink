@@ -1,4 +1,25 @@
-int a = 5;
-int b = 2 + a;
+if true and true {
+	print "1";
+}
+if true and false {
+	print "2";
+}
+if false and true {
+	print "3";
+}
+if false and false {
+	print "4";
+}
 
-print "b: " + b;
+if true or true {
+	print "5";
+}
+if true or false {
+	print "6";
+}
+if false or true {
+	print "7";
+}
+if false or false {
+	print "8";
+}
