@@ -2,6 +2,11 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum CompilerError {
+    Type {
+        actual: ExpressionKind,
+        expected: ExpressionKind,
+        line: usize,
+    },
     InvalidToken {
         actual: TokenKind,
         line: usize,
@@ -33,13 +38,6 @@ pub enum CompilerError {
         actual: ExpressionKind,
         line: usize,
     },
-
-    NumberOperator {
-        // TODO: Implement display instead
-        operator: Operator,
-        first: ExpressionKind,
-        second: ExpressionKind,
-    },
     NumberOperation {
         operator: TokenKind,
     },
@@ -59,6 +57,7 @@ pub enum CompilerError {
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            CompilerError::Type { actual, expected, line } => write!(f, "Expected type '{:?}' but got '{:?}' | at line {}", expected, actual, line),
             CompilerError::NumberOperation { operator } => write!(f, "Operator '{:?}' expects 2 numbers", operator),
             CompilerError::InvalidToken { actual, line } => write!(f, "Unexpected token '{:?}' | at line {}", actual, line),
             // TODO: Should Tokenkind impl display?
@@ -90,11 +89,6 @@ impl fmt::Display for CompilerError {
                 actual,
                 line,
             } => write!(f, "Unexpected type for parameter | Expected '{:?}' but got '{:?}' | at line {}", expected, actual, line),
-            CompilerError::NumberOperator {
-                operator,
-                first,
-                second,
-            } => write!(f, "{:?} operator only usable with ints | Found '{:?}' and '{:?}'", operator, first, second),
             CompilerError::ComparisonType {
                 first,
                 second,
@@ -110,21 +104,21 @@ impl fmt::Display for CompilerError {
     }
 }
 
-#[derive(Debug)]
-pub enum Operator {
-    Add,
-    Subtract,
-    Divide,
-    Modulo,
-    Multiply,
-    EqualEqual,
-    BangEqual,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    Not,
-}
+// #[derive(Debug)]
+// pub enum Operator {
+//     Add,
+//     Subtract,
+//     Divide,
+//     Modulo,
+//     Multiply,
+//     EqualEqual,
+//     BangEqual,
+//     Less,
+//     LessEqual,
+//     Greater,
+//     GreaterEqual,
+//     Not,
+// }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum ExpressionKind {

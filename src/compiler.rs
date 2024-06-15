@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::enums::{CompilerError, ExpressionKind, Operator, TokenKind};
+use crate::enums::{CompilerError, ExpressionKind, TokenKind};
 
 use crate::opcode::OpCode;
 use crate::scanner::{Scanner, Token};
@@ -41,44 +41,57 @@ pub fn compile(source: String) -> Result<Chunk> {
 }
 
 impl Compiler {
-    fn rd_expression(&mut self) -> Result<ExpressionKind> {
-        println!("USING RD_EXPRESSION");
-        return self.rd_or();
+    fn check_expression_kind(
+        &mut self,
+        kind: ExpressionKind,
+        expected: ExpressionKind,
+    ) -> Result<()> {
+        if kind != expected {
+            return Err(CompilerError::Type {
+                actual: kind,
+                expected,
+                line: self.current_line(),
+            });
+        }
+        Ok(())
     }
-    fn rd_or(&mut self) -> Result<ExpressionKind> {
-        let left_kind = self.rd_and()?;
+    fn expression(&mut self) -> Result<ExpressionKind> {
+        println!("USING RD_EXPRESSION");
+        return self.or();
+    }
+    fn or(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.and()?;
         while self.current_kind() == TokenKind::Or {
+            self.check_expression_kind(left_kind, ExpressionKind::Bool)?;
             self.p += 1;
-            let right_kind = self.rd_and()?;
-            // todo: check that both are bools
+            let right_kind = self.and()?;
+            self.check_expression_kind(right_kind, ExpressionKind::Bool)?;
             self.emit_opcode(OpCode::Or);
             return Ok(ExpressionKind::Bool);
         }
         Ok(left_kind)
     }
-    fn rd_and(&mut self) -> Result<ExpressionKind> {
-        let left_kind = self.rd_equality()?;
+    fn and(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.equality()?;
         while self.current_kind() == TokenKind::And {
+            self.check_expression_kind(left_kind, ExpressionKind::Bool)?;
             self.p += 1;
-            let right_kind = self.rd_equality()?;
-            // todo: check that both are bools
+            let right_kind = self.equality()?;
+            self.check_expression_kind(right_kind, ExpressionKind::Bool)?;
             self.emit_opcode(OpCode::And);
             return Ok(ExpressionKind::Bool);
         }
         Ok(left_kind)
     }
-    fn rd_equality(&mut self) -> Result<ExpressionKind> {
-        println!("!rd_equality!");
-        let left_kind = self.rd_comparison()?;
+    fn equality(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.comparison()?;
         let mut return_type = left_kind;
-        // let mut matched_eq = false;
         while self.current_kind() == TokenKind::BangEqual
             || self.current_kind() == TokenKind::EqualEqual
         {
             let token_kind = self.current_kind();
             self.p += 1;
-            let right_kind = self.rd_comparison()?;
-            // TODO: match left/right_kind and emit correct OpCode
+            let right_kind = self.comparison()?;
             if left_kind != right_kind {
                 return Err(CompilerError::ComparisonType {
                     first: left_kind,
@@ -99,15 +112,12 @@ impl Compiler {
                 },
                 _ => unreachable!(),
             }
-            // self.emit_opcode(OpCode::CompareIntNot);
             return_type = ExpressionKind::Bool;
-            // matched_eq = true;
         }
         Ok(return_type)
     }
-    fn rd_comparison(&mut self) -> Result<ExpressionKind> {
-        println!("!rd_comparison!");
-        let left_kind = self.rd_term()?;
+    fn comparison(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.term()?;
         let mut return_kind = left_kind;
         loop {
             match self.current_kind() {
@@ -117,16 +127,12 @@ impl Compiler {
                 | TokenKind::LessEqual => {}
                 _ => break,
             }
+            self.check_expression_kind(left_kind, ExpressionKind::Int)?;
             let token_kind = self.current_kind();
             self.p += 1;
-            let right_kind = self.rd_term()?;
-            if right_kind != ExpressionKind::Int || left_kind != ExpressionKind::Int {
-                return Err(CompilerError::NumberOperation {
-                    operator: token_kind,
-                });
-            }
+            let right_kind = self.term()?;
+            self.check_expression_kind(right_kind, ExpressionKind::Int)?;
 
-            // TODO: match left/right_kind and emit correct OpCode
             match token_kind {
                 TokenKind::Greater => self.emit_opcode(OpCode::Greater),
                 TokenKind::GreaterEqual => self.emit_opcode(OpCode::GreaterEqual),
@@ -134,14 +140,13 @@ impl Compiler {
                 TokenKind::LessEqual => self.emit_opcode(OpCode::LessEqual),
                 _ => unreachable!(),
             }
-            // self.emit_opcode(OpCode::Greater);
             return_kind = ExpressionKind::Bool;
         }
         Ok(return_kind)
     }
 
-    fn rd_term(&mut self) -> Result<ExpressionKind> {
-        let left_kind = self.rd_factor()?;
+    fn term(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.factor()?;
         let mut return_kind = left_kind;
         loop {
             let token_kind = self.current_kind();
@@ -150,34 +155,35 @@ impl Compiler {
                 _ => break,
             }
             self.p += 1;
-            let right_kind = self.rd_factor()?;
+            let right_kind = self.factor()?;
 
-            // TODO: match left/right_kind and emit correct OpCode
             match token_kind {
                 TokenKind::Minus => {
-                    if right_kind != ExpressionKind::Int || left_kind != ExpressionKind::Int {
-                        return Err(CompilerError::NumberOperation {
-                            operator: token_kind,
-                        });
-                    }
+                    self.check_expression_kind(left_kind, ExpressionKind::Int)?;
+                    self.check_expression_kind(right_kind, ExpressionKind::Int)?;
                     self.emit_opcode(OpCode::Subtract)
                 }
-                TokenKind::Plus => {
-                    match (left_kind, right_kind) {
-                        (ExpressionKind::Bool, ExpressionKind::String) => self.emit_opcode(OpCode::BoolStringConcat),
-                        (ExpressionKind::String, ExpressionKind::Bool) => self.emit_opcode(OpCode::StringBoolConcat),
-                        (ExpressionKind::Int, ExpressionKind::String) => self.emit_opcode(OpCode::IntStringConcat),
-                        (ExpressionKind::String, ExpressionKind::Int) => self.emit_opcode(OpCode::StringIntConcat),
-                        (ExpressionKind::String, ExpressionKind::String) => self.emit_opcode(OpCode::StringStringConcat),
-                        (ExpressionKind::Int, ExpressionKind::Int) => self.emit_opcode(OpCode::Add),
-                        _ => todo!("invalid types erro")
+                TokenKind::Plus => match (left_kind, right_kind) {
+                    (ExpressionKind::Bool, ExpressionKind::String) => {
+                        self.emit_opcode(OpCode::BoolStringConcat)
                     }
-
-
+                    (ExpressionKind::String, ExpressionKind::Bool) => {
+                        self.emit_opcode(OpCode::StringBoolConcat)
+                    }
+                    (ExpressionKind::Int, ExpressionKind::String) => {
+                        self.emit_opcode(OpCode::IntStringConcat)
+                    }
+                    (ExpressionKind::String, ExpressionKind::Int) => {
+                        self.emit_opcode(OpCode::StringIntConcat)
+                    }
+                    (ExpressionKind::String, ExpressionKind::String) => {
+                        self.emit_opcode(OpCode::StringStringConcat)
+                    }
+                    (ExpressionKind::Int, ExpressionKind::Int) => self.emit_opcode(OpCode::Add),
+                    _ => todo!("invalid types erro"),
                 },
                 _ => unreachable!(),
             }
-            // todo: handle string aswell
             if left_kind == ExpressionKind::String || right_kind == ExpressionKind::String {
                 return_kind = ExpressionKind::String;
             } else {
@@ -187,23 +193,20 @@ impl Compiler {
         Ok(return_kind)
     }
 
-    fn rd_factor(&mut self) -> Result<ExpressionKind> {
-        let left_kind = self.rd_unary()?;
+    fn factor(&mut self) -> Result<ExpressionKind> {
+        let left_kind = self.unary()?;
         let mut return_kind = left_kind;
         loop {
             match self.current_kind() {
                 TokenKind::Slash | TokenKind::Star | TokenKind::Percent => {}
                 _ => break,
             }
+            self.check_expression_kind(left_kind, ExpressionKind::Int)?;
             let token_kind = self.current_kind();
             self.p += 1;
-            let right_kind = self.rd_unary()?;
+            let right_kind = self.unary()?;
+            self.check_expression_kind(right_kind, ExpressionKind::Int)?;
 
-            if left_kind != ExpressionKind::Int || right_kind != ExpressionKind::Int {
-                return Err(CompilerError::NumberOperation {
-                    operator: self.current_kind(),
-                });
-            }
             match token_kind {
                 TokenKind::Slash => self.emit_opcode(OpCode::Divide),
                 TokenKind::Star => self.emit_opcode(OpCode::Multiply),
@@ -215,33 +218,29 @@ impl Compiler {
         Ok(return_kind)
     }
 
-    fn rd_unary(&mut self) -> Result<ExpressionKind> {
+    fn unary(&mut self) -> Result<ExpressionKind> {
         match self.current_kind() {
             TokenKind::Bang => {
                 self.p += 1;
-                let kind = self.rd_unary()?;
-                if kind != ExpressionKind::Bool {
-                    return Err(CompilerError::BooleanExpression(self.p));
-                }
+                let kind = self.unary()?;
+                self.check_expression_kind(kind, ExpressionKind::Bool)?;
                 self.emit_opcode(OpCode::Not);
                 return Ok(kind);
             }
             TokenKind::Minus => {
                 self.p += 1;
-                let kind = self.rd_unary()?;
-                if kind != ExpressionKind::Int {
-                    return Err(CompilerError::BooleanExpression(self.p));
-                }
+                let kind = self.unary()?;
+                self.check_expression_kind(kind, ExpressionKind::Int)?;
                 self.emit_opcode(OpCode::Negate);
                 return Ok(kind);
             }
             _ => {
-                return self.rd_primary();
+                return self.primary();
             }
         }
     }
 
-    fn rd_primary(&mut self) -> Result<ExpressionKind> {
+    fn primary(&mut self) -> Result<ExpressionKind> {
         let curr_kind = self.current_kind();
         self.p += 1;
         match curr_kind {
@@ -275,7 +274,7 @@ impl Compiler {
             }
             TokenKind::LeftParen => {
                 // Todo:???
-                let kind = self.rd_expression();
+                let kind = self.expression();
                 self.consume_token(TokenKind::RightParen)?;
                 return kind;
             }
@@ -303,9 +302,6 @@ impl Compiler {
         self.emit_u8(res.0 as u8);
         Ok(res.1)
     }
-
-    // fn rd_function_call(&mut self) {
-    // }
 
     fn consume_token(&mut self, kind: TokenKind) -> Result<Token> {
         let token = &self.tokens[self.p];
@@ -351,9 +347,7 @@ impl Compiler {
             return Err(CompilerError::Redeclaration(consumed_token.line));
         }
         let consumed_token = self.consume_token(TokenKind::Equal)?;
-        // let kind = self.expression()?;
-        let kind = self.rd_expression()?;
-        // let kind = ExpressionKind::Int;
+        let kind = self.expression()?;
 
         if kind != exp_kind {
             return Err(CompilerError::DelcarationType {
@@ -457,8 +451,7 @@ impl Compiler {
                 // declaration
                 TokenKind::Return => {
                     self.p += 1;
-                    // let return_type = self.expression()?;
-                    let return_type = self.rd_expression()?;
+                    let return_type = self.expression()?;
                     self.emit_opcode(OpCode::ReturnValue);
                     self.emit_u8(self.local_count as u8);
                     self.consume_token(TokenKind::Semicolon)?;
@@ -593,8 +586,7 @@ impl Compiler {
             TokenKind::While => {
                 let jump_point = self.chunk.code.len();
                 self.p += 1;
-                // self.expression()?;
-                self.rd_expression()?;
+                self.expression()?;
                 self.emit_opcode(OpCode::SetJump);
                 self.chunk.emit_placeholder(0);
                 self.emit_opcode(OpCode::JumpIfFalse);
@@ -608,8 +600,7 @@ impl Compiler {
             }
             TokenKind::If => {
                 self.p += 1;
-                // self.expression()?;
-                self.rd_expression()?;
+                self.expression()?;
                 self.emit_opcode(OpCode::SetJump);
                 self.chunk.emit_placeholder(0);
                 self.emit_opcode(OpCode::JumpIfFalse);
@@ -620,8 +611,7 @@ impl Compiler {
             }
             TokenKind::Print => {
                 self.p += 1;
-                // self.expression()?;
-                self.rd_expression()?;
+                self.expression()?;
                 self.emit_opcode(OpCode::Print);
                 self.consume_token(TokenKind::Semicolon)?;
             }
@@ -640,8 +630,7 @@ impl Compiler {
                     // Reassignment
                     TokenKind::Equal => {
                         self.p += 1;
-                        // let kind = self.expression()?;
-                        let kind = self.rd_expression()?;
+                        let kind = self.expression()?;
                         self.emit_opcode(OpCode::SetLocal);
                         for local in self.locals.last().unwrap() {
                             if local.name == identifier_name {
@@ -673,257 +662,10 @@ impl Compiler {
                 self.consume_token(TokenKind::Semicolon)?;
             }
             _ => {
-                // self.expression()?;
-                self.rd_expression()?;
+                self.expression()?;
             }
         }
         Ok(())
-    }
-
-    fn expression(&mut self) -> Result<ExpressionKind> {
-        let mut previous: Option<ExpressionKind> = None;
-        let mut current: Option<ExpressionKind> = None;
-        let mut operator: Option<Operator> = None;
-        loop {
-            match self.current_kind() {
-                TokenKind::And => {
-                    // panic!("Expression AND");
-                    self.p += 1;
-                    let kind = self.expression()?;
-                    if kind != ExpressionKind::Bool {
-                        panic!("expression() => AND => kind != bool");
-                    }
-                    self.emit_opcode(OpCode::And);
-                    break;
-                }
-                TokenKind::Or => {
-                    // panic!("Expression AND");
-                    self.p += 1;
-                    let kind = self.expression()?;
-                    if kind != ExpressionKind::Bool {
-                        panic!("expression() => OR => kind != bool");
-                    }
-                    self.emit_opcode(OpCode::Or);
-                    break;
-                }
-                TokenKind::True => {
-                    self.emit_opcode(OpCode::True);
-                    previous = current;
-                    current = Some(ExpressionKind::Bool);
-                }
-                TokenKind::False => {
-                    self.emit_opcode(OpCode::False);
-                    previous = current;
-                    current = Some(ExpressionKind::Bool);
-                }
-                TokenKind::Number => {
-                    // todo: replace this method aswell?
-                    self.chunk.emit_number(&self.tokens[self.p]);
-                    previous = current;
-                    current = Some(ExpressionKind::Int);
-                }
-                TokenKind::String => {
-                    self.chunk.emit_string(&self.tokens[self.p]);
-                    previous = current;
-                    current = Some(ExpressionKind::String);
-                }
-                // expression
-                TokenKind::Identifier => {
-                    let identifier_name = self.tokens[self.p].value.to_string();
-                    if self.tokens[self.p + 1].kind == TokenKind::LeftParen {
-                        self.p += 1;
-                        let return_type = self.function_call(identifier_name)?;
-                        // need to set the current type
-                        // TODO
-                        current = return_type;
-                        // to stop p increment?
-                        self.p -= 1;
-                    } else {
-                        self.emit_opcode(OpCode::GetLocal);
-                        let mut found = false;
-                        // TODO: Function
-                        for local in self.locals.last().unwrap() {
-                            if local.name == self.tokens[self.p].value {
-                                // TODO
-                                previous = current;
-                                current = Some(local.kind);
-                                found = true;
-                                self.emit_u8(local.stack_pos as u8);
-                                break;
-                            }
-                        }
-                        if !found {
-                            return Err(CompilerError::MissingLocal {
-                                // Todo: self.current_value() ?
-                                name: self.tokens[self.p].value.to_string(),
-                                line: self.current_line(),
-                            });
-                        }
-                    }
-                }
-                TokenKind::Percent => {
-                    self.p += 1;
-                    operator = Some(Operator::Modulo);
-                    continue;
-                }
-                TokenKind::Plus => {
-                    self.p += 1;
-                    operator = Some(Operator::Add);
-                    continue;
-                }
-                TokenKind::Minus => {
-                    self.p += 1;
-                    operator = Some(Operator::Subtract);
-                    continue;
-                }
-                TokenKind::Star => {
-                    self.p += 1;
-                    operator = Some(Operator::Multiply);
-                    continue;
-                }
-                TokenKind::Slash => {
-                    self.p += 1;
-                    operator = Some(Operator::Divide);
-                    continue;
-                }
-                TokenKind::Nil => {
-                    todo!("not implemented")
-                }
-                TokenKind::EqualEqual => {
-                    self.p += 1;
-                    operator = Some(Operator::EqualEqual);
-                    continue;
-                }
-                TokenKind::BangEqual => {
-                    self.p += 1;
-                    operator = Some(Operator::BangEqual);
-                    continue;
-                }
-                TokenKind::Less => {
-                    self.p += 1;
-                    operator = Some(Operator::Less);
-                    continue;
-                }
-                TokenKind::LessEqual => {
-                    self.p += 1;
-                    operator = Some(Operator::LessEqual);
-                    continue;
-                }
-                TokenKind::Greater => {
-                    self.p += 1;
-                    operator = Some(Operator::Greater);
-                    continue;
-                }
-                TokenKind::GreaterEqual => {
-                    self.p += 1;
-                    operator = Some(Operator::GreaterEqual);
-                    continue;
-                }
-                // TokenKind::And => {
-                //     self.p += 1;
-                //     operator = Some(Operator::And);
-                //     previous = Some(ExpressionKind::Bool);
-                //     // current = Some(ExpressionKind::Bool);
-                //     continue;
-                // }
-                // TokenKind::Or => {
-                //     self.p += 1;
-                //     operator = Some(Operator::Or);
-                //     continue;
-                // }
-                TokenKind::Bang => {
-                    println!("do we get here?2");
-                    self.p += 1;
-                    operator = Some(Operator::Not);
-                    continue;
-                }
-                TokenKind::Semicolon => break,
-                TokenKind::LeftBrace => break,
-                TokenKind::Comma => break,
-                TokenKind::RightParen => break,
-                TokenKind::RightBrace => {
-                    self.p += 1;
-                    break;
-                }
-                _ => {
-                    return Err(CompilerError::InvalidToken {
-                        actual: self.current_kind(),
-                        line: self.current_line(),
-                    });
-                }
-            }
-
-            // adding operators after
-            match operator {
-                Some(Operator::Modulo)
-                // | Some(Operator::Greater)
-                // | Some(Operator::GreaterEqual)
-                // | Some(Operator::Less)
-                // | Some(Operator::LessEqual)
-                | Some(Operator::Subtract)
-                | Some(Operator::Multiply)
-                | Some(Operator::Divide) => {
-                    self.handle_int_int_operator(operator, previous, current)?;
-                }
-                Some(Operator::Greater)
-                | Some(Operator::GreaterEqual)
-                | Some(Operator::Less)
-                | Some(Operator::LessEqual) => {
-                    self.handle_int_int_operator(operator, previous, current)?;
-                    current = Some(ExpressionKind::Bool);
-                }
-                Some(Operator::Not) => {
-                    println!("emit not inst");
-                    if &current != &Some(ExpressionKind::Bool) {
-                        return Err(CompilerError::BooleanExpression(self.current_line()));
-                    }
-                    // TODO why do we not get here?
-                    println!("emit not inst");
-                    self.emit_opcode(OpCode::Not);
-                }
-                Some(Operator::BangEqual) => {
-                    if &previous != &current {
-                        return Err(CompilerError::ComparisonType {
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                            line: self.current_line(),
-                        });
-                    }
-                    match &current {
-                        Some(ExpressionKind::String) => self.emit_opcode(OpCode::CompareStringNot),
-                        Some(ExpressionKind::Bool) => self.emit_opcode(OpCode::CompareBoolNot),
-                        Some(ExpressionKind::Int) => self.emit_opcode(OpCode::CompareIntNot),
-                        None => unreachable!("Cant compare none"),
-                    }
-                    current = Some(ExpressionKind::Bool);
-                }
-
-                Some(Operator::EqualEqual) => {
-                    if &previous != &current {
-                        return Err(CompilerError::ComparisonType {
-                            first: previous.unwrap(),
-                            second: current.unwrap(),
-                            line: self.tokens[self.p].line,
-                        });
-                    }
-                    match &current {
-                        Some(ExpressionKind::String) => self.emit_opcode(OpCode::CompareString),
-                        Some(ExpressionKind::Bool) => self.emit_opcode(OpCode::CompareBool),
-                        Some(ExpressionKind::Int) => self.emit_opcode(OpCode::CompareInt),
-                        None => unreachable!("Cant compare none"),
-                    }
-                    current = Some(ExpressionKind::Bool);
-                }
-
-                Some(Operator::Add) => {
-                    current = Some(self.handle_add_operator(previous.unwrap(), current.unwrap())?);
-                }
-                None => {}
-            }
-            operator = None;
-            self.p += 1;
-        }
-        Ok(current.unwrap())
     }
 
     // TODO  handle the case where the function has a return type
@@ -931,8 +673,7 @@ impl Compiler {
         self.consume_token(TokenKind::LeftParen)?;
         let function = self.functions[&identifier_name].clone();
         for param in function.params.clone() {
-            // let kind = self.expression()?;
-            let kind = self.rd_expression()?;
+            let kind = self.expression()?;
             if kind != param.kind {
                 return Err(CompilerError::ParamType {
                     expected: param.kind,
@@ -965,51 +706,6 @@ impl Compiler {
         self.chunk.emit_code(b, self.current_line());
     }
 
-    fn handle_int_int_operator(
-        &mut self,
-        operator: Option<Operator>,
-        previous: Option<ExpressionKind>,
-        current: Option<ExpressionKind>,
-    ) -> Result<()> {
-        if &previous != &Some(ExpressionKind::Int) || &current != &Some(ExpressionKind::Int) {
-            return Err(CompilerError::NumberOperator {
-                operator: Operator::Modulo,
-                first: previous.unwrap(),
-                second: current.unwrap(),
-            });
-        }
-        let opcode = operator_to_opcode(operator.unwrap());
-        self.emit_opcode(opcode);
-        Ok(())
-    }
-
-    fn handle_add_operator(
-        &mut self,
-        exp1: ExpressionKind,
-        exp2: ExpressionKind,
-    ) -> Result<ExpressionKind> {
-        let opcode = match (exp1, exp2) {
-            (ExpressionKind::String, ExpressionKind::String) => OpCode::StringStringConcat,
-            (ExpressionKind::String, ExpressionKind::Int) => OpCode::StringIntConcat,
-            (ExpressionKind::Int, ExpressionKind::String) => OpCode::IntStringConcat,
-            (ExpressionKind::String, ExpressionKind::Bool) => OpCode::StringBoolConcat,
-            (ExpressionKind::Int, ExpressionKind::Int) => OpCode::Add,
-            (ExpressionKind::Bool, ExpressionKind::String) => OpCode::BoolStringConcat,
-            _ => {
-                return Err(CompilerError::InvalidOperatorTypes {
-                    first: exp1,
-                    second: exp2,
-                    line: self.current_line(),
-                });
-            }
-        };
-        self.emit_opcode(opcode);
-        if exp1 == ExpressionKind::Int && exp2 == ExpressionKind::Int {
-            return Ok(ExpressionKind::Int);
-        }
-        return Ok(ExpressionKind::String);
-    }
-
     fn current_line(&self) -> usize {
         return self.tokens[self.p].line;
     }
@@ -1018,45 +714,12 @@ impl Compiler {
     }
 }
 
-fn operator_to_opcode(operator: Operator) -> OpCode {
-    match operator {
-        // TODO: What to do with add?
-        //Add => OpCode::Add,
-        Operator::Subtract => OpCode::Subtract,
-        Operator::Divide => OpCode::Divide,
-        Operator::Multiply => OpCode::Multiply,
-        Operator::Modulo => OpCode::Modulo,
-        Operator::Greater => OpCode::Greater,
-        Operator::GreaterEqual => OpCode::GreaterEqual,
-        Operator::Less => OpCode::Less,
-        Operator::LessEqual => OpCode::LessEqual,
-        _ => panic!("Should not be possible"),
-    }
-}
-
-// #[derive(Clone, Copy)]
-// enum Precedence {
-//     None,
-//     Assignment, // =
-//     Or,         // or
-//     And,        // and
-//     Equality,   // == !=
-//     Comparison, // < > <= >=
-//     Term,       // + -
-//     Factor,     // * /
-//     Unary,      // ! -
-//     Call,       // . ()
-//     Primary,
-// }
-
 #[derive(Debug)]
 struct Local {
     kind: ExpressionKind,
     name: String,
     stack_pos: usize,
 }
-
-// TODO: derive display instead
 
 #[derive(Clone)]
 struct Function {
