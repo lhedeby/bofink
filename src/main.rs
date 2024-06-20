@@ -20,7 +20,11 @@ fn run_file(file_path: &str) {
     match fs::read_to_string(file_path) {
         Ok(source) => match compiler::compile(source) {
             Ok(chunk) => vm::interpret(chunk, &mut stdout()),
-            Err(e) => println!("Compiler error: {}", e),
+            Err(_) => {
+                println!("Error compiling file {}", file_path);
+                // println!("{}", source.lines().nth(e.))
+                // println!("Compiler error: {}", e)
+            },
         },
         Err(_) => panic!("Error reading file"),
     }
@@ -64,9 +68,9 @@ mod tests {
     #[test]
     fn concatenation() {
         let source = r#"
-            int i = 1;
-            str s = "word";
-            bool b = true;
+            let i = 1;
+            let s = "word";
+            let b = true;
             print s + i;
             print s + b;
             print i + s;
@@ -80,7 +84,7 @@ mod tests {
     #[test]
     fn adding_numbers() {
         let source = r#"
-            int i = 2 + 3 + 4 + 5;
+            let i = 2 + 3 + 4 + 5;
             print "Sum: " + i;
         "#;
         let expected = "Sum: 14\n";
@@ -91,7 +95,7 @@ mod tests {
     #[test]
     fn while_loop() {
         let source = r#"
-            int i = 0;
+            mut i = 0;
             while i < 5 {
                 print "hello";
                 i = i + 1;
@@ -105,7 +109,7 @@ mod tests {
     #[test]
     fn while_loop_concat() {
         let source = r#"
-            int i = 0;
+            mut i = 0;
             while i < 5 {
                 print "hello" + i;
                 i = i + 1;
@@ -134,12 +138,12 @@ mod tests {
     #[test]
     fn function_with_local_params() {
         let source = r#"
-            str s1 = "first";
+            let s1 = "first";
             fun test(p1: str, p2: str) {
                 print p1 + "!";
                 print p2 + "!";
             }
-            str s2 = "second";
+            let s2 = "second";
             test(s1, s2);
         "#;
         let expected = "first!\nsecond!\n";
@@ -150,12 +154,12 @@ mod tests {
     #[test]
     fn multiple_function_with_local_params() {
         let source = r#"
-            str s1 = "first";
+            let s1 = "first";
             fun test(p1: str, p2: str) {
                 print p1 + "!";
                 print p2 + "!";
             }
-            str s2 = "second";
+            let s2 = "second";
             test(s1, s2);
             test(s1, s2);
         "#;
@@ -180,7 +184,7 @@ mod tests {
                 print "yes3";
             }
 
-            int i = 0;
+            mut i = 0;
             i = i + 1;
             if i == 1 {
                 print "yes4";
@@ -193,9 +197,9 @@ mod tests {
     #[test]
     fn nested_while() {
         let source = r#"
-            int i = 0;
+            mut i = 0;
             while i < 3 {
-                int j = 0;
+                mut j = 0;
                 while j < 3 {
                     print "i: " + i + ", j: " + j;
                     j = j + 1;
@@ -211,9 +215,9 @@ mod tests {
     #[test]
     fn nested_while_with_if() {
         let source = r#"
-            int i = 0;
+            mut i: int = 0;
             while i < 5 {
-                int j = 0;
+                mut j: int = 0;
                 while j < 5 {
                     if j == 3 {
                         print "j==3";
@@ -311,7 +315,7 @@ mod tests {
     #[test]
     fn comparing() {
         let source = r#"
-            int i = 5;
+            let i = 5;
             if i > 3 {
                 print "3";
             }
@@ -347,27 +351,27 @@ mod tests {
     #[test]
     fn arithmetic() {
         let source = r#"
-            int i = 5 - 3;
+            let i = 5 - 3;
             if i != 2 {
                 print "something went wrong";
             }
 
-            int j = 5 + 5;
+            let j = 5 + 5;
             if j != 10 {
                 print "something went wrong";
             }
 
-            int k = 10 / 2;
+            let k = 10 / 2;
             if k != 5 {
                 print "something went wrong";
             }
 
-            int l = 5 * 5;
+            let l = 5 * 5;
             if l != 25 {
                 print "something went wrong";
             }
 
-            int h = 7 % 3;
+            let h = 7 % 3;
             if h != 1 {
                 print "something went wrong";
             }
@@ -386,11 +390,11 @@ mod tests {
                 if i == 1 {
                     return 1;
                 }
-                int r1 = fib(i - 1);
-                int r2 = fib(i - 2);
+                let r1 = fib(i - 1);
+                let r2 = fib(i - 2);
                 return r1 + r2; 
             }
-            int res = fib(10);
+            let res: int = fib(10);
             print "res: " + res;
         "#;
         let expected = "res: 89\n";

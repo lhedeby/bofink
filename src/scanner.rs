@@ -4,6 +4,7 @@ pub struct Scanner {
     start: usize,
     current: usize,
     line: usize,
+    column: usize,
     source: String,
 }
 
@@ -13,6 +14,7 @@ impl Scanner {
             start: 0,
             current: 0,
             line: 1,
+            column: 0,
             source,
         };
         let mut res = vec![];
@@ -107,6 +109,8 @@ impl Scanner {
 
     fn identifier_list(&self) -> Vec<(String, TokenKind)> {
         vec![
+            ("let".to_string(), TokenKind::Let),
+            ("mut".to_string(), TokenKind::Mut),
             ("true".to_string(), TokenKind::True),
             ("and".to_string(), TokenKind::And),
             ("class".to_string(), TokenKind::Class),
@@ -168,6 +172,7 @@ impl Scanner {
                     ' ' | '\r' | '\t' => _ = self.advance(),
                     '\n' => {
                         self.line += 1;
+                        self.column = 0;
                         self.advance();
                     }
                     '/' => {
@@ -213,6 +218,7 @@ impl Scanner {
     }
 
     fn advance(&mut self) -> char {
+        self.column += 1;
         self.current += 1;
         self.source.chars().nth(self.current - 1).unwrap()
     }
@@ -222,20 +228,24 @@ impl Scanner {
             TokenKind::String => Token {
                 kind,
                 line: self.line,
+                column: self.column,
                 value: self.source[(self.start + 1)..(self.current - 1)].to_string(),
             },
             _ => Token {
                 kind,
                 line: self.line,
+                column: self.column,
                 value: self.source[self.start..self.current].to_string(),
             },
         }
     }
 
+    // TODO: remove?
     fn error_token(&self, message: &str) -> Token {
         Token {
             kind: TokenKind::Error,
             line: self.line,
+            column: self.column,
             value: message.to_string(),
         }
     }
@@ -249,6 +259,7 @@ impl Scanner {
 pub struct Token {
     pub kind: TokenKind,
     pub line: usize,
+    pub column: usize,
     pub value: String,
 }
 

@@ -1,11 +1,20 @@
 use std::fmt;
 
+use crate::scanner::Token;
+
 #[derive(Debug)]
 pub enum CompilerError {
+    CantMut {
+        token: Token,
+    },
     Type {
         actual: ExpressionKind,
         expected: ExpressionKind,
         line: usize,
+    },
+    NotAType {
+        kind: TokenKind,
+        line: usize
     },
     InvalidToken {
         actual: TokenKind,
@@ -41,6 +50,9 @@ pub enum CompilerError {
     NumberOperation {
         operator: TokenKind,
     },
+    NoneValue {
+        line: usize
+    },
     ComparisonType {
         first: ExpressionKind,
         second: ExpressionKind,
@@ -51,12 +63,20 @@ pub enum CompilerError {
         second: ExpressionKind,
         line: usize,
     },
+    ReturnValueFromVoid {
+        kind: ExpressionKind,
+        line: usize,
+    },
     BooleanExpression(usize),
 }
 
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            CompilerError::CantMut { token } => write!(f, "Cant mutate var | at line {}", token.line),
+            CompilerError::NotAType { kind: token, line } => write!(f, "Exptected type annotation but got '{:?}' | at line {}", token, line),
+            CompilerError::ReturnValueFromVoid { kind, line } => write!(f, "Cannot return a '{:?}' value from a function that has no return type | at line {}", kind, line),
+            CompilerError::NoneValue { line } => write!(f, "Trying to use use 'None' value in expression | at line {}", line),
             CompilerError::Type { actual, expected, line } => write!(f, "Expected type '{:?}' but got '{:?}' | at line {}", expected, actual, line),
             CompilerError::NumberOperation { operator } => write!(f, "Operator '{:?}' expects 2 numbers", operator),
             CompilerError::InvalidToken { actual, line } => write!(f, "Unexpected token '{:?}' | at line {}", actual, line),
@@ -125,6 +145,7 @@ pub enum ExpressionKind {
     Bool,
     String,
     Int,
+    None,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -157,6 +178,8 @@ pub enum TokenKind {
     String,
     Number,
     // Keywords.
+    Let,
+    Mut,
     And,
     Class,
     Else,
