@@ -1,6 +1,7 @@
-let i: int = 5;
-i = 9;
 
+mut i = 5;
+i = 8;
 print "i: " + i;
-
+let j = 7;
+print "j: " + j;
 

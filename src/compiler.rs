@@ -47,7 +47,7 @@ pub fn compile(source: String) -> Result<Chunk> {
             println!("{}   _________", " ".repeat(line_index.to_string().len()));
             println!("{}  |", " ".repeat(line_index.to_string().len()));
             println!("{}  | {}", line_index, line);
-            println!("{}  |_________", " ".repeat(line_index.to_string().len()));
+            println!("{}  |_________\n", " ".repeat(line_index.to_string().len()));
             Err(e)
         }
     }
@@ -363,13 +363,14 @@ impl Compiler {
         None
     }
 
-    fn local_declaration(&mut self, is_mut: bool) -> Result<()> {
+    fn local_declaration(&mut self) -> Result<()> {
+        let is_mut = match self.current_kind() {
+            TokenKind::Mut => true,
+            TokenKind::Let => false,
+            _ => unreachable!(),
+        };
         self.p += 1;
 
-        // let is_mut = match self.consume_if_match(TokenKind::Mut) {
-        //     Some(_) => true,
-        //     None => false
-        // };
         let consumed_token = self.consume_token(TokenKind::Identifier)?;
         let identifier = &consumed_token.value.to_string();
         if self
@@ -414,17 +415,21 @@ impl Compiler {
         self.consume_token(TokenKind::Semicolon)?;
         Ok(())
     }
+    fn class_declaration(&mut self) -> Result<()> {
+        Ok(())
+    }
 
     fn declaration(&mut self) -> Result<()> {
         loop {
             match self.current_kind() {
                 // type should be a first class member?
                 // 'typeof' built in function?
-                TokenKind::Mut => {
-                    self.local_declaration(true)?;
+                TokenKind::Mut | TokenKind::Let => {
+                    self.local_declaration()?;
                 }
-                TokenKind::Let => {
-                    self.local_declaration(false)?;
+                TokenKind::Class => {
+                    self.class_declaration()?;
+                    todo!("class");
                 }
                 // TokenKind::Str => {
                 //     self.local_declaration(ExpressionKind::String)?;
@@ -657,7 +662,6 @@ impl Compiler {
                             });
                         }
                         if !local.is_mut {
-                            // TODO: complete the error printing
                             let error_token = Self::get_error_token(&self.tokens[self.p]);
                             return Err(CompilerError::CantMut { token: error_token });
                         }
@@ -849,6 +853,9 @@ struct Function {
     index: u8,
     params: Vec<Param>,
     return_type: Option<ExpressionKind>,
+}
+
+struct Class {
 }
 
 #[derive(Clone)]
