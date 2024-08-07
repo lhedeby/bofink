@@ -21,14 +21,15 @@ type Result<T> = std::result::Result<T, CompilerError>;
 pub fn compile(source: String) -> Result<Chunk> {
     let mut compiler = Compiler {
         chunk: Chunk {
-            code: vec![],
+            curr_func: 0,
+            code: vec![vec![]],
             line: vec![],
             strings: vec![],
             funcs: vec![],
             ints: vec![],
             patch_list: vec![],
+            runtime_functions: vec![],
         },
-
         p: 0,
         locals: vec![vec![]],
         functions: HashMap::new(),
@@ -38,6 +39,7 @@ pub fn compile(source: String) -> Result<Chunk> {
         tokens: Scanner::get_tokens(source.clone()),
     };
 
+    println!("{:?}", compiler.chunk);
     match compiler.declaration() {
         Ok(_) => Ok(compiler.chunk),
         Err(e) => {
@@ -452,12 +454,34 @@ impl Compiler {
                     self.locals.push(vec![]);
                     self.local_count = 0;
                     let identifier = &self.tokens[self.p].value.to_string();
-                    self.emit_opcode(OpCode::SetJump);
-                    // todo self placeholder?
-                    self.chunk.emit_placeholder(0);
-                    self.emit_opcode(OpCode::JumpForward);
-                    let fun_start = self.chunk.code.len();
-                    self.chunk.funcs.push(fun_start);
+
+                    // self.emit_opcode(OpCode::SetJump);
+                    // // todo self placeholder?
+                    // self.chunk.emit_placeholder(0);
+                    // self.emit_opcode(OpCode::JumpForward);
+                    // let fun_start = self.chunk.code.len();
+                    // self.chunk.funcs.push(fun_start);
+
+                    // let func_chunk = Chunk {
+                    //     code: vec![],
+                    //     line: vec![],
+                    //     strings: vec![],
+                    //     funcs: vec![],
+                    //     ints: vec![],
+                    //     patch_list: vec![],
+                    //     runtime_functions: vec![],
+                    // };
+                    // let prev_chunk = &self.chunk;
+                    // let prev_chunk = std::mem::replace(&mut self.chunk, func_chunk);
+                    // self.chunk = func_chunk;
+                    // self.chunk = *prev_chunk;
+                    //
+                    // TODO: this wont work with multiple functions, need a stack or something
+                    let old_func = self.chunk.curr_func;
+                    // self.chunk.curr_func += 1;
+                    self.chunk.curr_func = self.chunk.code.len();
+                    self.chunk.code.push(vec![]);
+
                     let fun_count = self.functions.len();
                     if fun_count >= u8::MAX as usize {
                         return Err(CompilerError::MaxFunctions);
@@ -465,7 +489,7 @@ impl Compiler {
                     self.p += 1;
                     self.consume_token(TokenKind::LeftParen)?;
                     let mut function = Function {
-                        index: fun_count as u8,
+                        index: fun_count as u8 + 1,
                         params: vec![],
                         return_type: None,
                     };
@@ -510,10 +534,14 @@ impl Compiler {
 
                     self.emit_opcode(OpCode::Return);
                     self.emit_u8(self.local_count as u8);
-                    self.chunk.replace_placeholder();
+                    // self.chunk.replace_placeholder();
                     self.locals.pop();
                     self.local_count = self.locals.last().unwrap().len();
                     self.function_return_kind = None;
+                    self.chunk.curr_func = old_func;
+                    // self.chunk.curr_func -= 1;
+                    // self.chunk = prev_chunk;
+                    // self.chunk.runtime_functions.push(func_chunk);
                 }
 
                 TokenKind::Eof => return Ok(()),
@@ -574,7 +602,7 @@ impl Compiler {
 
     /// Compiles a `while` statement to bytecode.
     fn while_stmt(&mut self) -> Result<()> {
-        let jump_point = self.chunk.code.len();
+        let jump_point = self.chunk.code[self.chunk.curr_func].len();
         self.p += 1;
         self.expression()?;
         self.emit_opcode(OpCode::SetJump);
@@ -584,7 +612,7 @@ impl Compiler {
         self.declaration()?;
         self.end_scope();
         self.emit_opcode(OpCode::SetJump);
-        self.emit_u8((self.chunk.code.len() - jump_point + 2) as u8);
+        self.emit_u8((self.chunk.code[self.chunk.curr_func].len() - jump_point + 2) as u8);
         self.emit_opcode(OpCode::JumpBack);
         self.chunk.replace_placeholder();
         Ok(())
@@ -700,7 +728,7 @@ impl Compiler {
         self.chunk.emit_number(&consumed_token);
         self.add_local(iter_name, ExpressionKind::Int, true);
 
-        let jump_point = self.chunk.code.len();
+        let jump_point = self.chunk.code[self.chunk.curr_func].len();
 
         // move on
         self.consume_token(TokenKind::Colon)?;
@@ -775,7 +803,7 @@ impl Compiler {
         self.emit_opcode(OpCode::SetLocal);
         self.emit_u8(iterator_stack_pos);
         self.emit_opcode(OpCode::SetJump);
-        self.emit_u8((self.chunk.code.len() - jump_point + 2) as u8);
+        self.emit_u8((self.chunk.code[self.chunk.curr_func].len() - jump_point + 2) as u8);
         self.emit_opcode(OpCode::JumpBack);
         self.chunk.replace_placeholder();
         Ok(())
@@ -854,9 +882,12 @@ struct Function {
     params: Vec<Param>,
     return_type: Option<ExpressionKind>,
 }
-
-struct Class {
+#[derive(Debug)]
+pub struct RuntimeFunction {
+    chunk: Chunk,
 }
+
+struct Class {}
 
 #[derive(Clone)]
 struct Param {
@@ -865,31 +896,34 @@ struct Param {
 
 #[derive(Debug)]
 pub struct Chunk {
-    pub code: Vec<u8>,
+    pub curr_func: usize,
+    pub code: Vec<Vec<u8>>,
     pub line: Vec<usize>,
     pub strings: Vec<String>,
     pub ints: Vec<i64>,
     pub patch_list: Vec<usize>,
     pub funcs: Vec<usize>,
+    pub runtime_functions: Vec<Chunk>,
 }
 
 impl Chunk {
     fn emit_placeholder(&mut self, line: usize) {
-        self.patch_list.push(self.code.len());
-        self.code.push(0);
+        self.patch_list.push(self.code[self.curr_func].len());
+        self.code[self.curr_func].push(0);
         self.line.push(line);
     }
 
     fn replace_placeholder(&mut self) {
         if let Some(p) = self.patch_list.pop() {
-            let jump_len = self.code.len() - p - 2;
-            self.code[p] = jump_len as u8;
+            let jump_len = self.code[self.curr_func].len() - p - 2;
+            self.code[self.curr_func][p] = jump_len as u8;
         } else {
             panic!("Patch list is empty");
         }
     }
     fn emit_code(&mut self, b: u8, line: usize) {
-        self.code.push(b);
+        println!("{:?}", self.code);
+        self.code[self.curr_func].push(b);
         self.line.push(line);
     }
     fn emit_number(&mut self, token: &Token) {

@@ -19,7 +19,7 @@ fn main() {
 fn run_file(file_path: &str) {
     match fs::read_to_string(file_path) {
         Ok(source) => match compiler::compile(source) {
-            Ok(chunk) => vm::interpret(chunk, &mut stdout()),
+            Ok(chunk) => vm::start(chunk, &mut stdout()),
             Err(_) => {
                 println!("Error compiling file {}", file_path);
                 // println!("{}", source.lines().nth(e.))
@@ -37,7 +37,7 @@ mod tests {
     fn test_output(source: &str, expected_output: &str) {
         let mut buf = Vec::new();
         match compiler::compile(source.to_string()) {
-            Ok(chunk) => vm::interpret(chunk, &mut buf),
+            Ok(chunk) => vm::start(chunk, &mut buf),
             Err(e) => panic!("Compiler error: {}", e),
         }
         let output = String::from_utf8(buf).unwrap();

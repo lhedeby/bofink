@@ -1,7 +1,11 @@
+fun test1() {
+	print "test1";
+}
 
-mut i = 5;
-i = 8;
-print "i: " + i;
-let j = 7;
-print "j: " + j;
+fun test2() {
+	print "test2";
+}
+
+test1();
+test2();
 
