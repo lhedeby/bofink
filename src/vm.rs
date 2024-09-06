@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::io::Write;
 
 use crate::compiler::Chunk;
@@ -10,12 +11,45 @@ union StackValue {
     u: u8,
 }
 
+impl Display for StackValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!(
+            "i: {}, u: {}, bool: {}",
+            unsafe { self.i },
+            unsafe { self.u },
+            unsafe { self.b }
+        );
+        Ok(())
+    }
+}
+
 struct Vm {
     stack: Vec<StackValue>,
     // TODO: (usize, usize) ? with the second value being the row
     call_stack: Vec<(usize, usize)>,
     stack_offset: usize,
     offsets: Vec<usize>,
+    instances: Vec<RuntimeInstance>,
+}
+
+struct RuntimeInstance {
+    // class: u8,
+    values: Vec<StackValue>,
+}
+
+impl Display for RuntimeInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        println!("Struct RuntimeInstance - values");
+        for v in &self.values {
+            println!(
+                "i: {}, u: {}, bool: {}",
+                unsafe { v.i },
+                unsafe { v.u },
+                unsafe { v.b }
+            );
+        }
+        Ok(())
+    }
 }
 
 fn print_stack(stack: &Vec<StackValue>) {
@@ -36,6 +70,7 @@ pub fn start(chunk: Chunk, out: &mut impl Write) {
         call_stack: vec![],
         stack_offset: 0,
         offsets: vec![0],
+        instances: vec![],
     };
     vm.interpret(chunk, out);
 }
@@ -287,7 +322,6 @@ impl Vm {
                     // curr_code = &chunk.code[self.call_stack.len()];
                     curr_code = &chunk.code[func_idx];
                     ip = 0;
-                    // ip = chunk.funcs[jump_position as usize];
                     continue;
                 }
                 OpCode::PopStack => {
@@ -323,6 +357,64 @@ impl Vm {
                     self.stack.push(return_value);
 
                     continue;
+                }
+                OpCode::CreateInstance => {
+                    let mut instance = RuntimeInstance { values: vec![] };
+                    ip += 1;
+                    let field_count = curr_code[ip];
+                    let mut temp: Vec<StackValue> = vec![];
+                    for _ in 0..field_count {
+                        let val = self.stack.pop().unwrap();
+                        temp.push(val);
+                    }
+                    while temp.len() > 0 {
+                        instance.values.push(temp.pop().unwrap());
+                    }
+                    self.stack.push(StackValue {
+                        u: self.instances.len() as u8,
+                    });
+                    self.instances.push(instance);
+                }
+                OpCode::GetField => {
+                    ip += 1;
+                    let instance_idx = unsafe { self.stack.pop().unwrap().u as usize };
+                    let field_idx = curr_code[ip] as usize;
+
+                    // println!("=====================");
+                    // println!("value: {}", instance_idx);
+                    // println!("field_idx: {}", field_idx);
+                    // for i in &self.instances {
+                    //     println!("{}", i);
+                    // }
+                    // println!("=====================");
+                    self.stack.push(StackValue {
+                        i: unsafe { self.instances[instance_idx].values[field_idx].i },
+                    });
+                }
+                OpCode::SetField => {
+                    let new_value = unsafe {self.stack.pop().unwrap().i};
+                    let mut instance_idx = unsafe { self.stack.pop().unwrap().u as usize };
+                    ip += 1;
+
+                    let field_levels = curr_code[ip] as usize;
+                    for i in 0..field_levels {
+                        ip += 1;
+                        let temp = curr_code[ip] as usize;
+                        if i == (field_levels - 1) {
+                            self.instances[instance_idx].values[temp] = StackValue { i: new_value};
+                        } else {
+                            // TODO: works with u - why?
+                            instance_idx = unsafe {self.instances[instance_idx].values[temp].u as usize};
+                        }
+                    }
+
+                    // let val = self.stack.pop().unwrap();
+                    // self.instances.last().unwrap().values.push(val);
+                    // SET LOCAL
+                    //
+                    // ip += 1;
+                    // let slot = curr_code[ip] as usize;
+                    // unsafe { self.stack[slot].i = self.stack.pop().unwrap().i };
                 }
                 _ => panic!(
                     "No implementation for instruction '{:#?}'",

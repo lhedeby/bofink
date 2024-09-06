@@ -1,11 +1,16 @@
-fun test1() {
-	print "test1";
+class Test {
+	int i1;
 }
 
-fun test2() {
-	print "test2";
-}
 
-test1();
-test2();
+mut t = new Test(1);
+
+t.i1 = 5;
+
+print "hello: " + t.i1;
+
+
+
+
+
 

@@ -24,7 +24,7 @@ fn run_file(file_path: &str) {
                 println!("Error compiling file {}", file_path);
                 // println!("{}", source.lines().nth(e.))
                 // println!("Compiler error: {}", e)
-            },
+            }
         },
         Err(_) => panic!("Error reading file"),
     }
@@ -419,6 +419,22 @@ mod tests {
             }
         "#;
         let expected = "1\n2\nfizz\n4\nbuzz\nfizz\n7\n8\nfizz\nbuzz\n11\nfizz\n13\n14\nfizzbuzz\n16\n17\nfizz\n19\n";
+        test_output(source, expected);
+    }
+
+    #[test]
+    fn nested_objects_get() {
+        let source = r#"
+            class Test {
+                int i1;
+            }
+            class Foo {
+                Test t1;
+            }
+            let bar = new Foo(new Test(2));
+            print "i1:" + bar.t1.i1;
+        "#;
+        let expected = "i1:2\n";
         test_output(source, expected);
     }
 }

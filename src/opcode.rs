@@ -44,5 +44,9 @@ pub enum OpCode {
     Or,
     ReturnValue,
     Not,
+    // for classes
+    CreateInstance,
+    SetField,
+    GetField,
 }
 

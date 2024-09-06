@@ -145,6 +145,7 @@ pub enum ExpressionKind {
     Bool,
     String,
     Int,
+    Class(u8),
     None,
 }
 
@@ -178,6 +179,7 @@ pub enum TokenKind {
     String,
     Number,
     // Keywords.
+    New,
     Let,
     Mut,
     And,

@@ -128,6 +128,7 @@ impl Scanner {
             ("for".to_string(), TokenKind::For),
             ("fun".to_string(), TokenKind::Fun),
             ("in".to_string(), TokenKind::In),
+            ("new".to_string(), TokenKind::New),
         ]
     }
 

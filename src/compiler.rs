@@ -14,6 +14,7 @@ struct Compiler {
     functions: HashMap<String, Function>,
     function_return_kind: Option<ExpressionKind>,
     scopes: Vec<usize>,
+    classes: Vec<Class>,
 }
 
 type Result<T> = std::result::Result<T, CompilerError>;
@@ -21,14 +22,12 @@ type Result<T> = std::result::Result<T, CompilerError>;
 pub fn compile(source: String) -> Result<Chunk> {
     let mut compiler = Compiler {
         chunk: Chunk {
-            curr_func: 0,
             code: vec![vec![]],
             line: vec![],
             strings: vec![],
-            funcs: vec![],
             ints: vec![],
             patch_list: vec![],
-            runtime_functions: vec![],
+            func_temp: vec![0],
         },
         p: 0,
         locals: vec![vec![]],
@@ -37,9 +36,9 @@ pub fn compile(source: String) -> Result<Chunk> {
         local_count: 0,
         scopes: vec![],
         tokens: Scanner::get_tokens(source.clone()),
+        classes: vec![],
     };
 
-    println!("{:?}", compiler.chunk);
     match compiler.declaration() {
         Ok(_) => Ok(compiler.chunk),
         Err(e) => {
@@ -123,6 +122,7 @@ impl Compiler {
                     ExpressionKind::Bool => self.emit_opcode(OpCode::CompareBoolNot),
                     ExpressionKind::String => self.emit_opcode(OpCode::CompareStringNot),
                     ExpressionKind::Int => self.emit_opcode(OpCode::CompareIntNot),
+                    ExpressionKind::Class(_) => todo!("cant compare class"),
                     ExpressionKind::None => {
                         return Err(CompilerError::NoneValue {
                             line: self.current_line(),
@@ -133,6 +133,7 @@ impl Compiler {
                     ExpressionKind::Bool => self.emit_opcode(OpCode::CompareBool),
                     ExpressionKind::String => self.emit_opcode(OpCode::CompareString),
                     ExpressionKind::Int => self.emit_opcode(OpCode::CompareInt),
+                    ExpressionKind::Class(_) => todo!("cant compare class"),
                     ExpressionKind::None => {
                         return Err(CompilerError::NoneValue {
                             line: self.current_line(),
@@ -210,7 +211,7 @@ impl Compiler {
                         self.emit_opcode(OpCode::StringStringConcat)
                     }
                     (ExpressionKind::Int, ExpressionKind::Int) => self.emit_opcode(OpCode::Add),
-                    _ => todo!("invalid types erro"),
+                    _ => todo!("invalid types error"),
                 },
                 _ => unreachable!(),
             }
@@ -293,12 +294,40 @@ impl Compiler {
                 self.chunk.emit_string(&self.tokens[self.p - 1]);
                 Ok(ExpressionKind::String)
             }
+            TokenKind::New => {
+                return self.class_call();
+            }
             TokenKind::Identifier => {
                 let identifier = self.tokens[self.p - 1].value.to_string();
                 match self.tokens[self.p].kind {
                     // function call Todo: just dont...
                     TokenKind::LeftParen => Ok(self.function_call(identifier)?.unwrap()),
-                    TokenKind::Dot => todo!("not implemented"),
+                    TokenKind::Dot => {
+                        let mut kind = self.get_local()?;
+                        loop {
+                            self.p += 1;
+                            let consumed_token = self.consume_token(TokenKind::Identifier)?;
+                            self.emit_opcode(OpCode::GetField);
+                            match kind {
+                                ExpressionKind::Class(x) => {
+                                    let temp = self.classes[x as usize]
+                                        .fields
+                                        .iter()
+                                        .position(|f| f.0 == consumed_token.value)
+                                        .unwrap();
+                                    self.emit_u8(temp as u8);
+                                    kind = self.classes[x as usize].fields[temp].1;
+                                }
+                                _ => panic!("not a class"),
+                            }
+
+                            if self.current_kind() != TokenKind::Dot {
+                                break;
+                            }
+                        }
+
+                        return Ok(kind);
+                    }
                     _ => self.get_local(),
                 }
             }
@@ -308,7 +337,7 @@ impl Compiler {
                 self.consume_token(TokenKind::RightParen)?;
                 return kind;
             }
-            _ => unreachable!("Not a valid token"),
+            _ => unreachable!("Not a valid token: {:?}", curr_kind),
         }
     }
 
@@ -417,9 +446,96 @@ impl Compiler {
         self.consume_token(TokenKind::Semicolon)?;
         Ok(())
     }
+    fn class_call(&mut self) -> Result<ExpressionKind> {
+        let identifier = self.consume_token(TokenKind::Identifier)?.value.to_string();
+
+        let mut field_types: Vec<ExpressionKind> = vec![];
+        for class in &self.classes {
+            if class.name == identifier {
+                for field in &class.fields {
+                    field_types.push(field.1);
+                }
+            }
+        }
+        let idx = self
+            .classes
+            .iter()
+            .position(|class| class.name == identifier)
+            .unwrap() as u8;
+
+        self.consume_token(TokenKind::LeftParen)?;
+        let mut field_count = 0;
+        for field_kind in &field_types {
+            let kind = self.expression()?;
+            if field_kind != &kind {
+                return Err(CompilerError::Type {
+                    actual: kind,
+                    expected: *field_kind,
+                    line: self.current_line(),
+                });
+            }
+            field_count += 1;
+            if field_count != field_types.len() {
+                self.consume_token(TokenKind::Comma)?;
+            }
+        }
+
+        self.emit_opcode(OpCode::CreateInstance);
+        self.emit_u8(field_count as u8);
+
+        self.consume_token(TokenKind::RightParen)?;
+        Ok(ExpressionKind::Class(idx))
+    }
     fn class_declaration(&mut self) -> Result<()> {
+        self.consume_token(TokenKind::Class)?;
+        let identifier = self.consume_token(TokenKind::Identifier)?.value.to_string();
+        self.consume_token(TokenKind::LeftBrace)?;
+
+        let mut class = Class {
+            name: identifier,
+            fields: vec![],
+        };
+
+        while self.current_kind() != TokenKind::RightBrace {
+            let kind = match self.current_kind() {
+                TokenKind::Int => ExpressionKind::Int,
+                TokenKind::Str => ExpressionKind::String,
+                TokenKind::Bool => ExpressionKind::Bool,
+                TokenKind::Fun => {
+                    continue;
+                }
+                TokenKind::Identifier => ExpressionKind::Class(
+                    self.classes
+                        .iter()
+                        .position(|c| &c.name == &self.tokens[self.p].value)
+                        .unwrap() as u8,
+                ),
+                _ => todo!(
+                    "KIND PANIC in class_declaration - kind: {:?}",
+                    self.current_kind()
+                ),
+            };
+            self.p += 1;
+            let param_identifier = self.consume_token(TokenKind::Identifier)?.value.to_string();
+            class.fields.push((param_identifier, kind));
+            self.consume_token(TokenKind::Semicolon)?;
+        }
+        self.consume_token(TokenKind::RightBrace)?;
+        self.classes.push(class);
         Ok(())
     }
+
+    // creating and instance is probably a primary?
+    // runtime object
+    // name, idx, fields(type(a number), value(string|int|bool|etc))
+    // syntax
+    // token::new, token::identifier, token::left_parent, expression*(params), token::right_paren
+    // emit: create object
+    // emit: add values to param if exists
+    // done?
+    //
+    // then access values with .
+    //
 
     fn declaration(&mut self) -> Result<()> {
         loop {
@@ -431,17 +547,7 @@ impl Compiler {
                 }
                 TokenKind::Class => {
                     self.class_declaration()?;
-                    todo!("class");
                 }
-                // TokenKind::Str => {
-                //     self.local_declaration(ExpressionKind::String)?;
-                // }
-                // TokenKind::Bool => {
-                //     self.local_declaration(ExpressionKind::Bool)?;
-                // }
-                // TokenKind::Int => {
-                //     self.local_declaration(ExpressionKind::Int)?;
-                // }
                 // vad ar detta????
                 // end scope bara losa allt
                 TokenKind::RightBrace => {
@@ -450,98 +556,7 @@ impl Compiler {
                 }
                 // Function declaration
                 TokenKind::Fun => {
-                    self.p += 1;
-                    self.locals.push(vec![]);
-                    self.local_count = 0;
-                    let identifier = &self.tokens[self.p].value.to_string();
-
-                    // self.emit_opcode(OpCode::SetJump);
-                    // // todo self placeholder?
-                    // self.chunk.emit_placeholder(0);
-                    // self.emit_opcode(OpCode::JumpForward);
-                    // let fun_start = self.chunk.code.len();
-                    // self.chunk.funcs.push(fun_start);
-
-                    // let func_chunk = Chunk {
-                    //     code: vec![],
-                    //     line: vec![],
-                    //     strings: vec![],
-                    //     funcs: vec![],
-                    //     ints: vec![],
-                    //     patch_list: vec![],
-                    //     runtime_functions: vec![],
-                    // };
-                    // let prev_chunk = &self.chunk;
-                    // let prev_chunk = std::mem::replace(&mut self.chunk, func_chunk);
-                    // self.chunk = func_chunk;
-                    // self.chunk = *prev_chunk;
-                    //
-                    // TODO: this wont work with multiple functions, need a stack or something
-                    let old_func = self.chunk.curr_func;
-                    // self.chunk.curr_func += 1;
-                    self.chunk.curr_func = self.chunk.code.len();
-                    self.chunk.code.push(vec![]);
-
-                    let fun_count = self.functions.len();
-                    if fun_count >= u8::MAX as usize {
-                        return Err(CompilerError::MaxFunctions);
-                    }
-                    self.p += 1;
-                    self.consume_token(TokenKind::LeftParen)?;
-                    let mut function = Function {
-                        index: fun_count as u8 + 1,
-                        params: vec![],
-                        return_type: None,
-                    };
-                    while self.current_kind() != TokenKind::RightParen {
-                        let consumed_token = self.consume_token(TokenKind::Identifier)?;
-                        let param_name = &consumed_token.value.to_string();
-                        self.consume_token(TokenKind::Colon)?;
-                        let param_kind = match self.current_kind() {
-                            TokenKind::Int => ExpressionKind::Int,
-                            TokenKind::Bool => ExpressionKind::Bool,
-                            TokenKind::Str => ExpressionKind::String,
-                            _ => return Err(CompilerError::UnknownParamType(self.current_line())),
-                        };
-                        self.p += 1;
-                        function.params.push(Param { kind: param_kind });
-                        self.add_local(param_name, param_kind, true);
-                        self.consume_if_match(TokenKind::Comma);
-                    }
-
-                    self.consume_token(TokenKind::RightParen)?;
-                    function.return_type = match self.current_kind() {
-                        TokenKind::LeftBrace => None,
-                        TokenKind::Int => {
-                            self.p += 1;
-                            Some(ExpressionKind::Int)
-                        }
-                        TokenKind::Str => {
-                            self.p += 1;
-                            Some(ExpressionKind::String)
-                        }
-                        TokenKind::Bool => {
-                            self.p += 1;
-                            Some(ExpressionKind::Bool)
-                        }
-                        _ => panic!("TODO!"),
-                    };
-                    self.function_return_kind = function.return_type;
-
-                    self.functions.insert(identifier.to_string(), function);
-                    self.consume_token(TokenKind::LeftBrace)?;
-                    self.declaration()?;
-
-                    self.emit_opcode(OpCode::Return);
-                    self.emit_u8(self.local_count as u8);
-                    // self.chunk.replace_placeholder();
-                    self.locals.pop();
-                    self.local_count = self.locals.last().unwrap().len();
-                    self.function_return_kind = None;
-                    self.chunk.curr_func = old_func;
-                    // self.chunk.curr_func -= 1;
-                    // self.chunk = prev_chunk;
-                    // self.chunk.runtime_functions.push(func_chunk);
+                    self.function_declaration()?;
                 }
 
                 TokenKind::Eof => return Ok(()),
@@ -550,6 +565,77 @@ impl Compiler {
                 }
             }
         }
+    }
+
+    fn function_declaration(&mut self) -> Result<()> {
+        self.p += 1;
+        self.locals.push(vec![]);
+        self.local_count = 0;
+        let identifier = &self.tokens[self.p].value.to_string();
+
+        if self.functions.contains_key(identifier) {
+            return Err(CompilerError::Redeclaration(self.current_line()));
+        }
+
+        self.chunk.new_function();
+
+        let fun_count = self.functions.len();
+        if fun_count >= u8::MAX as usize {
+            return Err(CompilerError::MaxFunctions);
+        }
+        self.p += 1;
+        self.consume_token(TokenKind::LeftParen)?;
+        let mut function = Function {
+            index: fun_count as u8 + 1,
+            params: vec![],
+            return_type: None,
+        };
+        while self.current_kind() != TokenKind::RightParen {
+            let consumed_token = self.consume_token(TokenKind::Identifier)?;
+            let param_name = &consumed_token.value.to_string();
+            self.consume_token(TokenKind::Colon)?;
+            let param_kind = match self.current_kind() {
+                TokenKind::Int => ExpressionKind::Int,
+                TokenKind::Bool => ExpressionKind::Bool,
+                TokenKind::Str => ExpressionKind::String,
+                _ => return Err(CompilerError::UnknownParamType(self.current_line())),
+            };
+            self.p += 1;
+            function.params.push(Param { kind: param_kind });
+            self.add_local(param_name, param_kind, true);
+            self.consume_if_match(TokenKind::Comma);
+        }
+
+        self.consume_token(TokenKind::RightParen)?;
+        function.return_type = match self.current_kind() {
+            TokenKind::LeftBrace => None,
+            TokenKind::Int => {
+                self.p += 1;
+                Some(ExpressionKind::Int)
+            }
+            TokenKind::Str => {
+                self.p += 1;
+                Some(ExpressionKind::String)
+            }
+            TokenKind::Bool => {
+                self.p += 1;
+                Some(ExpressionKind::Bool)
+            }
+            _ => panic!("TODO!"),
+        };
+        self.function_return_kind = function.return_type;
+
+        self.functions.insert(identifier.to_string(), function);
+        self.consume_token(TokenKind::LeftBrace)?;
+        self.declaration()?;
+
+        self.emit_opcode(OpCode::Return);
+        self.emit_u8(self.local_count as u8);
+        self.locals.pop();
+        self.local_count = self.locals.last().unwrap().len();
+        self.function_return_kind = None;
+        self.chunk.end_function();
+        Ok(())
     }
 
     fn start_scope(&mut self) -> Result<()> {
@@ -602,7 +688,7 @@ impl Compiler {
 
     /// Compiles a `while` statement to bytecode.
     fn while_stmt(&mut self) -> Result<()> {
-        let jump_point = self.chunk.code[self.chunk.curr_func].len();
+        let jump_point = self.chunk.code[*self.chunk.func_temp.last().unwrap()].len();
         self.p += 1;
         self.expression()?;
         self.emit_opcode(OpCode::SetJump);
@@ -612,7 +698,9 @@ impl Compiler {
         self.declaration()?;
         self.end_scope();
         self.emit_opcode(OpCode::SetJump);
-        self.emit_u8((self.chunk.code[self.chunk.curr_func].len() - jump_point + 2) as u8);
+        self.emit_u8(
+            (self.chunk.code[*self.chunk.func_temp.last().unwrap()].len() - jump_point + 2) as u8,
+        );
         self.emit_opcode(OpCode::JumpBack);
         self.chunk.replace_placeholder();
         Ok(())
@@ -703,6 +791,116 @@ impl Compiler {
                 // This kind is never needed?
                 let _kind = self.function_call(identifier_name)?;
             }
+            // Reassign instance value
+            TokenKind::Dot => {
+                // find the local
+                let local_kind = self
+                    .locals
+                    .last()
+                    .unwrap()
+                    .iter()
+                    .find(|local| local.name == identifier_name)
+                    .unwrap()
+                    .kind;
+                let local_is_mut = self
+                    .locals
+                    .last()
+                    .unwrap()
+                    .iter()
+                    .find(|local| local.name == identifier_name)
+                    .unwrap()
+                    .is_mut;
+                self.get_local()?;
+                // get the class idx and field kind
+                // if field kind is class - repeat
+                // else use field_idx
+                if !local_is_mut {
+                    let error_token = Self::get_error_token(&self.tokens[self.p]);
+                    // TODO: name should be included in the error messasge
+                    return Err(CompilerError::CantMut { token: error_token });
+                }
+                let mut field_idxs: Vec<u8> = vec![];
+
+                let mut class_idx = match local_kind {
+                    ExpressionKind::Class(c) => c,
+                    _ => panic!("must be class"),
+                };
+                let mut reassignment_kind = ExpressionKind::None;
+                loop {
+                    self.p += 1;
+                    let consumed_token = self.consume_token(TokenKind::Identifier)?;
+                    let field_kind = self.classes[class_idx as usize]
+                        .fields
+                        .iter()
+                        .find(|f| f.0 == consumed_token.value)
+                        .unwrap()
+                        .1;
+                    let field_idx = self.classes[class_idx as usize]
+                        .fields
+                        .iter()
+                        .position(|f| f.0 == consumed_token.value)
+                        .unwrap();
+                    reassignment_kind = field_kind;
+                    class_idx = match field_kind {
+                        ExpressionKind::Class(c) => c,
+                        _ => 0,
+                    };
+                    field_idxs.push(field_idx as u8);
+                    if self.current_kind() != TokenKind::Dot {
+                        break;
+                    }
+                }
+                self.consume_token(TokenKind::Equal)?;
+                let exp_kind = self.expression()?;
+
+                if exp_kind != reassignment_kind {
+                    return Err(CompilerError::Type {
+                        expected: reassignment_kind,
+                        actual: exp_kind,
+                        line: self.current_line(),
+                    });
+                }
+                self.emit_opcode(OpCode::SetField);
+                self.emit_u8(field_idxs.len() as u8);
+                for f_idx in field_idxs {
+                    self.emit_u8(f_idx);
+                }
+
+                // let field_pos = self.classes[class_idx as usize]
+                //     .fields
+                //     .iter()
+                //     .position(|x| x.0 == consumed_token.value)
+                //     .unwrap();
+                // let field_kind = &self.classes[class_idx as usize].fields[field_pos];
+                // if exp_kind != field_kind.1 {
+                //     return Err(CompilerError::Type {
+                //         expected: field_kind.1,
+                //         actual: exp_kind,
+                //         line: self.current_line(),
+                //     });
+                // }
+                // println!("exp_kind: {:?}", exp_kind);
+                //
+                // println!("field_pos {}", field_pos);
+                // self.emit_opcode(OpCode::SetField);
+                // self.emit_u8(field_pos as u8);
+
+                // MAYBE
+                // match local_kind {
+                //     ExpressionKind::Class(x) => {
+                //         let temp2 = self.classes[x as usize]
+                //             .fields
+                //             .iter()
+                //             .position(|f| f.0 == consumed_token.value)
+                //             .unwrap();
+                //         println!("temp2 {}", temp2);
+                //         // self.emit_u8(temp as u8);
+                //         // kind = self.classes[x as usize].fields[temp].1;
+                //     }
+                //     _ => panic!("not a class"),
+                // }
+                // MAYBNE
+            }
             _ => {
                 // Is this even possible? maybe just panic
                 return Err(CompilerError::InvalidToken {
@@ -728,7 +926,7 @@ impl Compiler {
         self.chunk.emit_number(&consumed_token);
         self.add_local(iter_name, ExpressionKind::Int, true);
 
-        let jump_point = self.chunk.code[self.chunk.curr_func].len();
+        let jump_point = self.chunk.code[*self.chunk.func_temp.last().unwrap()].len();
 
         // move on
         self.consume_token(TokenKind::Colon)?;
@@ -803,13 +1001,14 @@ impl Compiler {
         self.emit_opcode(OpCode::SetLocal);
         self.emit_u8(iterator_stack_pos);
         self.emit_opcode(OpCode::SetJump);
-        self.emit_u8((self.chunk.code[self.chunk.curr_func].len() - jump_point + 2) as u8);
+        self.emit_u8(
+            (self.chunk.code[*self.chunk.func_temp.last().unwrap()].len() - jump_point + 2) as u8,
+        );
         self.emit_opcode(OpCode::JumpBack);
         self.chunk.replace_placeholder();
         Ok(())
     }
 
-    //
     // STATEMENTS END
     //
 
@@ -882,12 +1081,13 @@ struct Function {
     params: Vec<Param>,
     return_type: Option<ExpressionKind>,
 }
-#[derive(Debug)]
-pub struct RuntimeFunction {
-    chunk: Chunk,
-}
 
-struct Class {}
+// TODO
+#[derive(Debug)]
+struct Class {
+    name: String,
+    fields: Vec<(String, ExpressionKind)>,
+}
 
 #[derive(Clone)]
 struct Param {
@@ -896,34 +1096,39 @@ struct Param {
 
 #[derive(Debug)]
 pub struct Chunk {
-    pub curr_func: usize,
     pub code: Vec<Vec<u8>>,
     pub line: Vec<usize>,
     pub strings: Vec<String>,
     pub ints: Vec<i64>,
     pub patch_list: Vec<usize>,
-    pub funcs: Vec<usize>,
-    pub runtime_functions: Vec<Chunk>,
+    pub func_temp: Vec<usize>,
 }
 
 impl Chunk {
+    fn new_function(&mut self) {
+        self.func_temp.push(self.code.len());
+        self.code.push(vec![]);
+    }
+    fn end_function(&mut self) {
+        self.func_temp.pop();
+    }
     fn emit_placeholder(&mut self, line: usize) {
-        self.patch_list.push(self.code[self.curr_func].len());
-        self.code[self.curr_func].push(0);
+        self.patch_list
+            .push(self.code[*self.func_temp.last().unwrap()].len());
+        self.code[*self.func_temp.last().unwrap()].push(0);
         self.line.push(line);
     }
 
     fn replace_placeholder(&mut self) {
         if let Some(p) = self.patch_list.pop() {
-            let jump_len = self.code[self.curr_func].len() - p - 2;
-            self.code[self.curr_func][p] = jump_len as u8;
+            let jump_len = self.code[*self.func_temp.last().unwrap()].len() - p - 2;
+            self.code[*self.func_temp.last().unwrap()][p] = jump_len as u8;
         } else {
             panic!("Patch list is empty");
         }
     }
     fn emit_code(&mut self, b: u8, line: usize) {
-        println!("{:?}", self.code);
-        self.code[self.curr_func].push(b);
+        self.code[*self.func_temp.last().unwrap()].push(b);
         self.line.push(line);
     }
     fn emit_number(&mut self, token: &Token) {
