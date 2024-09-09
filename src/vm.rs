@@ -13,13 +13,13 @@ union StackValue {
 
 impl Display for StackValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!(
+        write!(
+            f,
             "i: {}, u: {}, bool: {}",
             unsafe { self.i },
             unsafe { self.u },
             unsafe { self.b }
-        );
-        Ok(())
+        )
     }
 }
 
@@ -39,14 +39,15 @@ struct RuntimeInstance {
 
 impl Display for RuntimeInstance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        println!("Struct RuntimeInstance - values");
+        write!(f, "Struct RuntimeInstance - values")?;
         for v in &self.values {
-            println!(
+            write!(
+                f,
                 "i: {}, u: {}, bool: {}",
                 unsafe { v.i },
                 unsafe { v.u },
                 unsafe { v.b }
-            );
+            )?;
         }
         Ok(())
     }
@@ -77,14 +78,9 @@ pub fn start(chunk: Chunk, out: &mut impl Write) {
 
 impl Vm {
     pub fn interpret(&mut self, mut chunk: Chunk, out: &mut impl Write) {
-        let mut ip: usize = 0;
-        // let mut stack: Vec<StackValue> = vec![];
-        // let mut call_stack: Vec<usize> = vec![];
-        // let mut stack_offset = 0;
-        // let mut offsets: Vec<usize> = vec![0];
-
         let debug_loggin = false;
 
+        let mut ip: usize = 0;
         let mut curr_code = &chunk.code[0];
 
         while ip < curr_code.len() {
@@ -293,33 +289,25 @@ impl Vm {
                     self.stack.push(StackValue { u: curr_code[ip] });
                 }
                 OpCode::JumpIfFalse => {
-                    // TODO: use match
                     let jump_distance = unsafe { self.stack.pop().unwrap().u };
+
                     let bool = unsafe { self.stack.pop().unwrap().b };
                     if !bool {
                         ip += jump_distance as usize;
                     }
                 }
-                OpCode::JumpForward => {
-                    let jump_distance = unsafe { self.stack.pop().unwrap().u };
-                    ip += jump_distance as usize;
-                }
                 OpCode::JumpBack => {
                     let jump_distance = unsafe { self.stack.pop().unwrap().u };
-                    // println!("ip: {}",ip);
-                    // println!("jump distance: {}", jump_distance);
                     ip -= jump_distance as usize;
                 }
                 OpCode::FunctionCall => {
                     ip += 1;
-                    // let jump_position = chunk.code[ip];
                     let func_idx = curr_code[ip] as usize;
                     let return_func = match self.call_stack.last() {
                         Some(_) => func_idx,
                         None => 0,
                     };
                     self.call_stack.push((ip + 1, return_func));
-                    // curr_code = &chunk.code[self.call_stack.len()];
                     curr_code = &chunk.code[func_idx];
                     ip = 0;
                     continue;
@@ -380,19 +368,12 @@ impl Vm {
                     let instance_idx = unsafe { self.stack.pop().unwrap().u as usize };
                     let field_idx = curr_code[ip] as usize;
 
-                    // println!("=====================");
-                    // println!("value: {}", instance_idx);
-                    // println!("field_idx: {}", field_idx);
-                    // for i in &self.instances {
-                    //     println!("{}", i);
-                    // }
-                    // println!("=====================");
                     self.stack.push(StackValue {
                         i: unsafe { self.instances[instance_idx].values[field_idx].i },
                     });
                 }
                 OpCode::SetField => {
-                    let new_value = unsafe {self.stack.pop().unwrap().i};
+                    let new_value = unsafe { self.stack.pop().unwrap().i };
                     let mut instance_idx = unsafe { self.stack.pop().unwrap().u as usize };
                     ip += 1;
 
@@ -401,20 +382,13 @@ impl Vm {
                         ip += 1;
                         let temp = curr_code[ip] as usize;
                         if i == (field_levels - 1) {
-                            self.instances[instance_idx].values[temp] = StackValue { i: new_value};
+                            self.instances[instance_idx].values[temp] = StackValue { i: new_value };
                         } else {
                             // TODO: works with u - why?
-                            instance_idx = unsafe {self.instances[instance_idx].values[temp].u as usize};
+                            instance_idx =
+                                unsafe { self.instances[instance_idx].values[temp].u as usize };
                         }
                     }
-
-                    // let val = self.stack.pop().unwrap();
-                    // self.instances.last().unwrap().values.push(val);
-                    // SET LOCAL
-                    //
-                    // ip += 1;
-                    // let slot = curr_code[ip] as usize;
-                    // unsafe { self.stack[slot].i = self.stack.pop().unwrap().i };
                 }
                 _ => panic!(
                     "No implementation for instruction '{:#?}'",

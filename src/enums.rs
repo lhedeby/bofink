@@ -47,7 +47,7 @@ pub enum CompilerError {
         actual: ExpressionKind,
         line: usize,
     },
-    NumberOperation {
+    _NumberOperation {
         operator: TokenKind,
     },
     NoneValue {
@@ -58,7 +58,7 @@ pub enum CompilerError {
         second: ExpressionKind,
         line: usize,
     },
-    InvalidOperatorTypes {
+    _InvalidOperatorTypes {
         first: ExpressionKind,
         second: ExpressionKind,
         line: usize,
@@ -67,7 +67,7 @@ pub enum CompilerError {
         kind: ExpressionKind,
         line: usize,
     },
-    BooleanExpression(usize),
+    _BooleanExpression(usize),
 }
 
 impl fmt::Display for CompilerError {
@@ -78,9 +78,8 @@ impl fmt::Display for CompilerError {
             CompilerError::ReturnValueFromVoid { kind, line } => write!(f, "Cannot return a '{:?}' value from a function that has no return type | at line {}", kind, line),
             CompilerError::NoneValue { line } => write!(f, "Trying to use use 'None' value in expression | at line {}", line),
             CompilerError::Type { actual, expected, line } => write!(f, "Expected type '{:?}' but got '{:?}' | at line {}", expected, actual, line),
-            CompilerError::NumberOperation { operator } => write!(f, "Operator '{:?}' expects 2 numbers", operator),
+            CompilerError::_NumberOperation { operator } => write!(f, "Operator '{:?}' expects 2 numbers", operator),
             CompilerError::InvalidToken { actual, line } => write!(f, "Unexpected token '{:?}' | at line {}", actual, line),
-            // TODO: Should Tokenkind impl display?
             CompilerError::UnexpectedToken {
                 expected,
                 actual,
@@ -114,31 +113,15 @@ impl fmt::Display for CompilerError {
                 second,
                 line,
             } => write!(f, "Invalid comparison types | Got '{:?}' and '{:?}' | at line '{}'",first, second, line),
-            CompilerError::InvalidOperatorTypes {
+            CompilerError::_InvalidOperatorTypes {
                 first,
                 second,
                 line,
             } => write!(f, "Invalid types for operator | Got '{:?}' and '{:?} | at line {}'", first, second, line),
-            CompilerError::BooleanExpression(line) => write!(f, "Expected boolean expressions | at line {}", line),
+            CompilerError::_BooleanExpression(line) => write!(f, "Expected boolean expressions | at line {}", line),
         }
     }
 }
-
-// #[derive(Debug)]
-// pub enum Operator {
-//     Add,
-//     Subtract,
-//     Divide,
-//     Modulo,
-//     Multiply,
-//     EqualEqual,
-//     BangEqual,
-//     Less,
-//     LessEqual,
-//     Greater,
-//     GreaterEqual,
-//     Not,
-// }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum ExpressionKind {

@@ -1,16 +1,5 @@
-class Test {
-	int i1;
+fun foo(param1: int, param2: str) {
+    print "first param: " + param1;
+    print "second param : " + param2;
 }
-
-
-mut t = new Test(1);
-
-t.i1 = 5;
-
-print "hello: " + t.i1;
-
-
-
-
-
-
+foo(5, "a string");

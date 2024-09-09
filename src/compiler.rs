@@ -72,7 +72,7 @@ impl Compiler {
 
     /// Compiles an `expression` to bytecode.
     fn expression(&mut self) -> Result<ExpressionKind> {
-        return self.or();
+        self.or()
     }
 
     fn or(&mut self) -> Result<ExpressionKind> {
@@ -256,17 +256,17 @@ impl Compiler {
                 let kind = self.unary()?;
                 self.check_expression_kind(kind, ExpressionKind::Bool)?;
                 self.emit_opcode(OpCode::Not);
-                return Ok(kind);
+                Ok(kind)
             }
             TokenKind::Minus => {
                 self.p += 1;
                 let kind = self.unary()?;
                 self.check_expression_kind(kind, ExpressionKind::Int)?;
                 self.emit_opcode(OpCode::Negate);
-                return Ok(kind);
+                Ok(kind)
             }
             _ => {
-                return self.primary();
+                self.primary()
             }
         }
     }
@@ -295,7 +295,7 @@ impl Compiler {
                 Ok(ExpressionKind::String)
             }
             TokenKind::New => {
-                return self.class_call();
+                self.class_call()
             }
             TokenKind::Identifier => {
                 let identifier = self.tokens[self.p - 1].value.to_string();
@@ -326,7 +326,7 @@ impl Compiler {
                             }
                         }
 
-                        return Ok(kind);
+                        Ok(kind)
                     }
                     _ => self.get_local(),
                 }
@@ -335,7 +335,7 @@ impl Compiler {
                 // Todo:???
                 let kind = self.expression();
                 self.consume_token(TokenKind::RightParen)?;
-                return kind;
+                kind
             }
             _ => unreachable!("Not a valid token: {:?}", curr_kind),
         }
@@ -372,12 +372,12 @@ impl Compiler {
             });
         }
         self.p += 1;
-        return Ok(Token {
+        Ok(Token {
             kind: token.kind,
             line: token.line,
             column: token.column,
             value: token.value.to_string(),
-        });
+        })
     }
 
     fn consume_if_match(&mut self, kind: TokenKind) -> Option<Token> {
@@ -825,8 +825,7 @@ impl Compiler {
                     ExpressionKind::Class(c) => c,
                     _ => panic!("must be class"),
                 };
-                let mut reassignment_kind = ExpressionKind::None;
-                loop {
+                let reassignment_kind = loop {
                     self.p += 1;
                     let consumed_token = self.consume_token(TokenKind::Identifier)?;
                     let field_kind = self.classes[class_idx as usize]
@@ -840,16 +839,15 @@ impl Compiler {
                         .iter()
                         .position(|f| f.0 == consumed_token.value)
                         .unwrap();
-                    reassignment_kind = field_kind;
                     class_idx = match field_kind {
                         ExpressionKind::Class(c) => c,
                         _ => 0,
                     };
                     field_idxs.push(field_idx as u8);
                     if self.current_kind() != TokenKind::Dot {
-                        break;
+                        break field_kind
                     }
-                }
+                };
                 self.consume_token(TokenKind::Equal)?;
                 let exp_kind = self.expression()?;
 
@@ -866,40 +864,6 @@ impl Compiler {
                     self.emit_u8(f_idx);
                 }
 
-                // let field_pos = self.classes[class_idx as usize]
-                //     .fields
-                //     .iter()
-                //     .position(|x| x.0 == consumed_token.value)
-                //     .unwrap();
-                // let field_kind = &self.classes[class_idx as usize].fields[field_pos];
-                // if exp_kind != field_kind.1 {
-                //     return Err(CompilerError::Type {
-                //         expected: field_kind.1,
-                //         actual: exp_kind,
-                //         line: self.current_line(),
-                //     });
-                // }
-                // println!("exp_kind: {:?}", exp_kind);
-                //
-                // println!("field_pos {}", field_pos);
-                // self.emit_opcode(OpCode::SetField);
-                // self.emit_u8(field_pos as u8);
-
-                // MAYBE
-                // match local_kind {
-                //     ExpressionKind::Class(x) => {
-                //         let temp2 = self.classes[x as usize]
-                //             .fields
-                //             .iter()
-                //             .position(|f| f.0 == consumed_token.value)
-                //             .unwrap();
-                //         println!("temp2 {}", temp2);
-                //         // self.emit_u8(temp as u8);
-                //         // kind = self.classes[x as usize].fields[temp].1;
-                //     }
-                //     _ => panic!("not a class"),
-                // }
-                // MAYBNE
             }
             _ => {
                 // Is this even possible? maybe just panic
@@ -1060,10 +1024,10 @@ impl Compiler {
     }
 
     fn current_line(&self) -> usize {
-        return self.tokens[self.p].line;
+        self.tokens[self.p].line
     }
     fn current_kind(&self) -> TokenKind {
-        return self.tokens[self.p].kind;
+        self.tokens[self.p].kind
     }
 }
 

@@ -22,8 +22,6 @@ fn run_file(file_path: &str) {
             Ok(chunk) => vm::start(chunk, &mut stdout()),
             Err(_) => {
                 println!("Error compiling file {}", file_path);
-                // println!("{}", source.lines().nth(e.))
-                // println!("Compiler error: {}", e)
             }
         },
         Err(_) => panic!("Error reading file"),
